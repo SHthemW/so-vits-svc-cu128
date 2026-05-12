@@ -4,14 +4,17 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 import gradio as gr
+import torch
 
 PYTHON = sys.executable
 ROOT = Path(__file__).parent
 
 _procs: dict = {
+    "download": None,
     "resample": None,
     "flist": None,
     "hubert": None,
@@ -24,6 +27,211 @@ _lock = threading.Lock()
 _MAX_LOG_LINES = 500
 
 CONFIG_PATH = ROOT / "configs" / "config.json"
+
+# ── Pretrained model registry ────────────────────────────────────────────────
+
+PRETRAIN_MODELS = {
+    "pretrain/checkpoint_best_legacy_500.pt": {
+        "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt",
+        "desc": "ContentVec 语音编码器 (vec768l12, 必需)",
+        "size_mb": 1200,
+        "required": True,
+    },
+    "pretrain/rmvpe.pt": {
+        "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
+        "desc": "RMVPE F0 预测器 (推荐)",
+        "size_mb": 140,
+        "required": True,
+    },
+    "pretrain/nsf_hifigan/model": {
+        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/nsf_hifigan_20221211/model",
+        "desc": "NSF-HiFiGAN 声码器 (推理增强)",
+        "size_mb": 55,
+        "required": False,
+    },
+    "pretrain/nsf_hifigan/config.json": {
+        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/nsf_hifigan_20221211/config.json",
+        "desc": "NSF-HiFiGAN 配置文件",
+        "size_mb": 1,
+        "required": False,
+    },
+}
+
+BASE_MODELS = {
+    "logs/44k/G_0.pth": {
+        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/sovits4.0-pretrain/G_0.pth",
+        "desc": "Generator 底模 (强烈推荐，加快收敛)",
+        "size_mb": 550,
+    },
+    "logs/44k/D_0.pth": {
+        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/sovits4.0-pretrain/D_0.pth",
+        "desc": "Discriminator 底模",
+        "size_mb": 330,
+    },
+}
+
+
+def check_environment() -> str:
+    lines = []
+    lines.append("═══ 环境检查 ═══\n")
+
+    # CUDA
+    if torch.cuda.is_available():
+        dev_name = torch.cuda.get_device_properties(0).name
+        vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        lines.append(f"[OK] CUDA 可用: {dev_name} ({vram:.1f} GB)")
+        lines.append(f"     PyTorch CUDA 版本: {torch.version.cuda}")
+    else:
+        lines.append("[!!] CUDA 不可用 — 将使用 CPU，训练会极慢")
+
+    lines.append(f"[--] Python: {sys.version.split()[0]}")
+    lines.append(f"[--] PyTorch: {torch.__version__}")
+
+    # dataset_raw
+    lines.append("\n═══ 数据目录 ═══\n")
+    dataset_raw = ROOT / "dataset_raw"
+    if dataset_raw.exists():
+        speakers = [d.name for d in dataset_raw.iterdir() if d.is_dir()]
+        if speakers:
+            for spk in speakers:
+                wavs = list((dataset_raw / spk).glob("*.wav"))
+                lines.append(f"[OK] dataset_raw/{spk}/ — {len(wavs)} 个 WAV 文件")
+        else:
+            lines.append("[!!] dataset_raw/ 存在但没有说话人子目录")
+    else:
+        lines.append("[!!] dataset_raw/ 目录不存在 — 请创建并放入训练音频")
+
+    # Pretrained models
+    lines.append("\n═══ 预训练模型 ═══\n")
+    for path, info in PRETRAIN_MODELS.items():
+        full = ROOT / path
+        tag = "必需" if info["required"] else "可选"
+        if full.exists():
+            size = full.stat().st_size / 1024**2
+            lines.append(f"[OK] {path} ({size:.0f} MB)")
+        else:
+            lines.append(f"[缺失] {path} — {info['desc']} [{tag}]")
+
+    # Base models
+    lines.append("\n═══ 训练底模 ═══\n")
+    for path, info in BASE_MODELS.items():
+        full = ROOT / path
+        if full.exists():
+            size = full.stat().st_size / 1024**2
+            lines.append(f"[OK] {path} ({size:.0f} MB)")
+        else:
+            lines.append(f"[缺失] {path} — {info['desc']}")
+
+    return "\n".join(lines)
+
+
+_download_cancel = threading.Event()
+
+
+def _download_file(url: str, dest: Path, key: str):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "so-vits-svc/4.1"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            block_size = 1024 * 1024  # 1 MB
+
+            with open(tmp, "wb") as f:
+                while True:
+                    if _download_cancel.is_set():
+                        with _lock:
+                            _log_buffers[key].append(f"[取消] 下载已取消: {dest.name}")
+                        tmp.unlink(missing_ok=True)
+                        return
+                    chunk = resp.read(block_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        pct = downloaded * 100 // total
+                        mb_done = downloaded / 1024**2
+                        mb_total = total / 1024**2
+                        with _lock:
+                            progress_line = f"  下载中: {dest.name} — {mb_done:.1f}/{mb_total:.1f} MB ({pct}%)"
+                            if _log_buffers[key] and _log_buffers[key][-1].startswith("  下载中:"):
+                                _log_buffers[key][-1] = progress_line
+                            else:
+                                _log_buffers[key].append(progress_line)
+
+        tmp.rename(dest)
+        with _lock:
+            _log_buffers[key].append(f"[完成] {dest.name} 下载成功")
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        with _lock:
+            _log_buffers[key].append(f"[错误] 下载失败 {dest.name}: {e}")
+
+
+def start_download(dl_pretrain, dl_base):
+    key = "download"
+    with _lock:
+        if _procs.get(key) == "running":
+            return "下载任务已在进行中"
+        _log_buffers[key] = []
+        _procs[key] = "running"
+    _download_cancel.clear()
+
+    tasks = []
+    if dl_pretrain:
+        for path, info in PRETRAIN_MODELS.items():
+            full = ROOT / path
+            if not full.exists():
+                tasks.append((info["url"], full))
+    if dl_base:
+        for path, info in BASE_MODELS.items():
+            full = ROOT / path
+            if not full.exists():
+                tasks.append((info["url"], full))
+
+    if not tasks:
+        with _lock:
+            _log_buffers[key].append("[提示] 所有选中的文件都已存在，无需下载")
+            _procs[key] = None
+        return "所有文件已存在"
+
+    def _worker():
+        with _lock:
+            _log_buffers[key].append(f"开始下载 {len(tasks)} 个文件...\n")
+        for url, dest in tasks:
+            if _download_cancel.is_set():
+                break
+            with _lock:
+                _log_buffers[key].append(f"[开始] {dest.relative_to(ROOT)}")
+            _download_file(url, dest, key)
+        with _lock:
+            _procs[key] = None
+            if _download_cancel.is_set():
+                _log_buffers[key].append("\n下载已被用户取消")
+            else:
+                _log_buffers[key].append("\n所有下载任务完成!")
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return f"已启动下载 ({len(tasks)} 个文件)"
+
+
+def stop_download():
+    _download_cancel.set()
+    return "正在取消下载..."
+
+
+def get_download_log():
+    return _get_log("download")
+
+
+def get_download_status():
+    with _lock:
+        if _procs.get("download") == "running":
+            return "下载中..."
+    return "空闲"
 
 
 def _launch(key: str, args: list) -> str:
@@ -249,8 +457,30 @@ def build_training_tab():
                 "按顺序完成以下各步骤。请将训练音频放入 `dataset_raw/<说话人名>/` 目录后开始。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
 
+    # ── Step 0: Environment check & download ─────────────────────────
+    with gr.Accordion("前置步骤：环境检查与模型下载", open=True):
+        gr.Markdown("检查 CUDA 环境、训练数据目录、预训练模型是否就绪。缺失的模型可一键从 HuggingFace 下载。")
+        with gr.Row():
+            env_check_btn = gr.Button("检查环境", variant="primary")
+        env_check_output = gr.Textbox(label="检查结果", lines=18, max_lines=30, interactive=False)
+        env_check_btn.click(check_environment, [], [env_check_output])
+
+        gr.Markdown("---")
+        gr.Markdown("**下载缺失的模型文件** (从 HuggingFace 下载，需要网络连接)")
+        with gr.Row():
+            dl_pretrain = gr.Checkbox(label="下载预训练模型 (ContentVec, RMVPE, NSF-HiFiGAN)", value=True)
+            dl_base = gr.Checkbox(label="下载训练底模 (G_0.pth, D_0.pth)", value=True)
+        with gr.Row():
+            dl_start_btn = gr.Button("开始下载", variant="primary")
+            dl_stop_btn = gr.Button("取消下载")
+            dl_status = gr.Textbox(label="状态", value=get_download_status, every=2, interactive=False, scale=2)
+        dl_log = gr.Textbox(label="下载日志", value=get_download_log, every=2, lines=10, max_lines=20, interactive=False)
+
+        dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status])
+        dl_stop_btn.click(stop_download, [], [dl_status])
+
     # ── Step 1: Resample ─────────────────────────────────────────────
-    with gr.Accordion("第一步：音频重采样 (resample.py)", open=True):
+    with gr.Accordion("第一步：音频重采样 (resample.py)", open=False):
         gr.Markdown("将 `dataset_raw/<说话人名>/` 下的原始音频重采样至 44100Hz mono，输出到 `dataset/44k/`")
         with gr.Row():
             resample_skip_loudnorm = gr.Checkbox(label="跳过响度归一化 (--skip_loudnorm)", value=False)
