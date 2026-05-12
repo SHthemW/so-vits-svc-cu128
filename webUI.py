@@ -21,6 +21,7 @@ from compress_model import removeOptimizer
 from edgetts.tts_voices import SUPPORTED_LANGUAGES
 from inference.infer_tool import Svc
 from utils import mix_model
+from webui_train import build_training_tab
 
 logging.getLogger('numba').setLevel(logging.WARNING)
 logging.getLogger('markdown_it').setLevel(logging.WARNING)
@@ -280,6 +281,8 @@ with gr.Blocks(
     ),
 ) as app:
     with gr.Tabs():
+        with gr.TabItem("训练"):
+            build_training_tab()
         with gr.TabItem("推理"):
             gr.Markdown(value="""
                 So-vits-svc 4.0 推理 webui
@@ -402,8 +405,7 @@ with gr.Blocks(
                     compress_model_output = gr.Textbox(label="输出信息", value="")
 
                     compress_model_btn.click(model_compression, [model_to_compress], [compress_model_output])
-                    
-                    
+
     with gr.Tabs():
         with gr.Row(variant="panel"):
             with gr.Column():
@@ -423,6 +425,7 @@ with gr.Blocks(
         debug_button.change(debug_change,[],[])
         model_load_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection],[sid,sid_output])
         model_unload_button.click(modelUnload,[],[sid,sid_output])
+    app.queue()
     os.system("start http://127.0.0.1:7860")
     app.launch()
 
