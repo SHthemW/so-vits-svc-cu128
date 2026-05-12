@@ -1,0 +1,55 @@
+# 以下是训练过程中会用到的常用指令
+
+# 先打开整合包里的so-vits-svc-cmd.exe, 启用命令行环境
+# 然后将下面的命令**依次**复制过去, 按Enter执行
+# 注意要一条一条的复制, 上一条命令执行完后才可以进行下一步
+# 带"#"的行是注释, **不可以**复制!
+
+
+
+# 预处理第一步
+
+python resample.py
+
+
+
+# 预处理第二步
+
+python preprocess_flist_config.py --speech_encoder vec768l12 --vol_aug
+
+# 此时整合包的configs/目录下应该生成了configs.json配置文件, 可在里面手动修改参数
+# 每个参数的含义和修改方法请参考官方中文文档
+
+
+
+# 预处理第三步
+# 不训练扩散模型的话可以去掉" --use_diff"参数
+#  "--num_processes"参数后跟的数字必须小于等于你电脑的处理器核心数, 不知道是多少的话百度一下查看方法
+
+python preprocess_hubert_f0.py --use_diff --num_processes 8
+
+
+
+# 训练主模型
+# 该命令执行后即开始训练模型. 程序会自动识别上一次的训练进度并继续训练.
+# 要想终止训练, 直接关闭控制台即可. 模型会在训练中自动保存.
+
+python train.py -c configs/config.json -m 44k
+
+
+
+# 训练扩散模型
+
+python train_diff.py -c configs/diffusion.yaml
+
+
+
+# 训练特征检索模型
+
+python train_index.py -c configs/config.json
+
+
+
+# 查看Tensorboard以评估训练进度
+
+python -m tensorboard.main --logdir=logs\44k
