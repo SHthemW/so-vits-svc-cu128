@@ -318,6 +318,10 @@ def get_download_log():
     return _get_log("download")
 
 
+def clear_download_log():
+    return _clear_log("download")
+
+
 def get_download_status():
     with _lock:
         if _procs.get("download") == "running":
@@ -407,6 +411,12 @@ def _stop(key: str) -> str:
 def _get_log(key: str) -> str:
     with _lock:
         return "\n".join(_log_buffers[key])
+
+
+def _clear_log(key: str) -> str:
+    with _lock:
+        _log_buffers[key].clear()
+    return ""
 
 
 def _get_progress(key: str) -> float:
@@ -504,6 +514,10 @@ def get_resample_log():
     return _get_log("resample")
 
 
+def clear_resample_log():
+    return _clear_log("resample")
+
+
 def get_resample_progress():
     return _get_progress("resample")
 
@@ -552,6 +566,10 @@ def get_flist_log():
     return _get_log("flist")
 
 
+def clear_flist_log():
+    return _clear_log("flist")
+
+
 def get_flist_progress():
     return _get_progress("flist")
 
@@ -583,6 +601,10 @@ def get_hubert_log():
     return _get_log("hubert")
 
 
+def clear_hubert_log():
+    return _clear_log("hubert")
+
+
 def get_hubert_progress():
     return _get_progress("hubert")
 
@@ -603,6 +625,10 @@ def get_train_log():
     return _get_log("train")
 
 
+def clear_train_log():
+    return _clear_log("train")
+
+
 def get_train_progress():
     return _get_progress("train")
 
@@ -621,6 +647,10 @@ def stop_train_diff():
 
 def get_train_diff_log():
     return _get_log("diff")
+
+
+def clear_train_diff_log():
+    return _clear_log("diff")
 
 
 def get_train_diff_progress():
@@ -644,6 +674,10 @@ def stop_index():
 
 def get_index_log():
     return _get_log("index")
+
+
+def clear_index_log():
+    return _clear_log("index")
 
 
 def get_index_progress():
@@ -719,11 +753,13 @@ def build_training_tab():
         with gr.Row():
             dl_start_btn = gr.Button("开始下载", variant="primary")
             dl_stop_btn = gr.Button("取消下载")
+            dl_clear_btn = gr.Button("清除日志")
             dl_status = gr.Textbox(label="状态", value=get_download_status, every=2, interactive=False, scale=2)
-        dl_log = gr.Textbox(label="下载日志", value=get_download_log, every=2, lines=10, max_lines=20, interactive=False)
+        dl_log = gr.Textbox(label="下载日志", value=get_download_log, every=2, lines=10, max_lines=20, interactive=False, autoscroll=True)
 
         dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status])
         dl_stop_btn.click(stop_download, [], [dl_status])
+        dl_clear_btn.click(clear_download_log, [], [dl_log])
 
     # ── Step 1: Resample ─────────────────────────────────────────────
     with gr.Accordion("第一步：音频重采样 (resample.py)", open=False):
@@ -743,11 +779,13 @@ def build_training_tab():
         with gr.Row():
             resample_start_btn = gr.Button("开始重采样", variant="primary")
             resample_stop_btn = gr.Button("停止")
+            resample_clear_btn = gr.Button("清除日志")
             resample_status = gr.Textbox(label="状态", value=get_resample_status, every=2, interactive=False, scale=2)
-        resample_log = gr.Textbox(label="日志", value=get_resample_log, every=3, lines=8, max_lines=15, interactive=False)
+        resample_log = gr.Textbox(label="日志", value=get_resample_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
 
         resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status])
         resample_stop_btn.click(stop_resample, [], [resample_status])
+        resample_clear_btn.click(clear_resample_log, [], [resample_log])
 
     # ── Step 2: flist + config ───────────────────────────────────────
     with gr.Accordion("第二步：生成文件列表和配置 (preprocess_flist_config.py)", open=False):
@@ -766,11 +804,13 @@ def build_training_tab():
         with gr.Row():
             flist_start_btn = gr.Button("开始生成", variant="primary")
             flist_stop_btn = gr.Button("停止")
+            flist_clear_btn = gr.Button("清除日志")
             flist_status = gr.Textbox(label="状态", value=get_flist_status, every=2, interactive=False, scale=2)
-        flist_log = gr.Textbox(label="日志", value=get_flist_log, every=3, lines=8, max_lines=15, interactive=False)
+        flist_log = gr.Textbox(label="日志", value=get_flist_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
 
         flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status])
         flist_stop_btn.click(stop_flist, [], [flist_status])
+        flist_clear_btn.click(clear_flist_log, [], [flist_log])
 
     # ── Step 3: Hubert + F0 ──────────────────────────────────────────
     with gr.Accordion("第三步：提取特征和F0 (preprocess_hubert_f0.py)", open=False):
@@ -788,11 +828,13 @@ def build_training_tab():
         with gr.Row():
             hubert_start_btn = gr.Button("开始提取", variant="primary")
             hubert_stop_btn = gr.Button("停止")
+            hubert_clear_btn = gr.Button("清除日志")
             hubert_status = gr.Textbox(label="状态", value=get_hubert_status, every=2, interactive=False, scale=2)
-        hubert_log = gr.Textbox(label="日志", value=get_hubert_log, every=3, lines=8, max_lines=15, interactive=False)
+        hubert_log = gr.Textbox(label="日志", value=get_hubert_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
 
         hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status])
         hubert_stop_btn.click(stop_hubert, [], [hubert_status])
+        hubert_clear_btn.click(clear_hubert_log, [], [hubert_log])
 
     # ── Training config editor ───────────────────────────────────────
     with gr.Accordion("训练参数配置 (configs/config.json)", open=False):
@@ -817,11 +859,13 @@ def build_training_tab():
         with gr.Row():
             train_start_btn = gr.Button("开始训练", variant="primary")
             train_stop_btn = gr.Button("停止训练")
+            train_clear_btn = gr.Button("清除日志")
             train_status = gr.Textbox(label="状态", value=get_train_status, every=2, interactive=False, scale=2)
-        train_log = gr.Textbox(label="训练日志", value=get_train_log, every=3, lines=15, max_lines=30, interactive=False)
+        train_log = gr.Textbox(label="训练日志", value=get_train_log, every=3, lines=15, max_lines=30, interactive=False, autoscroll=True)
 
         train_start_btn.click(start_train, [], [train_status])
         train_stop_btn.click(stop_train, [], [train_status])
+        train_clear_btn.click(clear_train_log, [], [train_log])
 
     # ── Step 5: Diffusion training ───────────────────────────────────
     with gr.Accordion("第五步（可选）：训练扩散模型 (train_diff.py)", open=False):
@@ -830,11 +874,13 @@ def build_training_tab():
         with gr.Row():
             diff_start_btn = gr.Button("开始训练扩散模型", variant="primary")
             diff_stop_btn = gr.Button("停止")
+            diff_clear_btn = gr.Button("清除日志")
             diff_status = gr.Textbox(label="状态", value=get_train_diff_status, every=2, interactive=False, scale=2)
-        diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, every=3, lines=12, max_lines=25, interactive=False)
+        diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, every=3, lines=12, max_lines=25, interactive=False, autoscroll=True)
 
         diff_start_btn.click(start_train_diff, [], [diff_status])
         diff_stop_btn.click(stop_train_diff, [], [diff_status])
+        diff_clear_btn.click(clear_train_diff_log, [], [diff_log])
 
     # ── Step 6: Index ────────────────────────────────────────────────
     with gr.Accordion("第六步：构建特征检索索引 (train_index.py)", open=False):
@@ -843,8 +889,10 @@ def build_training_tab():
         with gr.Row():
             index_start_btn = gr.Button("开始构建索引", variant="primary")
             index_stop_btn = gr.Button("停止")
+            index_clear_btn = gr.Button("清除日志")
             index_status = gr.Textbox(label="状态", value=get_index_status, every=2, interactive=False, scale=2)
-        index_log = gr.Textbox(label="日志", value=get_index_log, every=3, lines=8, max_lines=15, interactive=False)
+        index_log = gr.Textbox(label="日志", value=get_index_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
 
         index_start_btn.click(start_index, [], [index_status])
         index_stop_btn.click(stop_index, [], [index_status])
+        index_clear_btn.click(clear_index_log, [], [index_log])
