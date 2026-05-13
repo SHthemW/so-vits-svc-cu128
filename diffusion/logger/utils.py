@@ -67,7 +67,7 @@ def get_network_paras_amount(model_dict):
 
 
 def load_config(path_config):
-    with open(path_config, "r") as config:
+    with open(path_config, "r", encoding="utf-8") as config:
         args = yaml.safe_load(config)
     args = DotDict(args)
     # print(args)
@@ -75,7 +75,7 @@ def load_config(path_config):
 
 def save_config(path_config,config):
     config = dict(config)
-    with open(path_config, "w") as f:
+    with open(path_config, "w", encoding="utf-8") as f:
         yaml.dump(config, f)
 
 def to_json(path_params, path_json):
@@ -85,7 +85,7 @@ def to_json(path_params, path_json):
         val = v.flatten().numpy().tolist()
         raw_state_dict[k] = val
 
-    with open(path_json, 'w') as outfile:
+    with open(path_json, 'w', encoding="utf-8") as outfile:
         json.dump(raw_state_dict, outfile,indent= "\t")
 
 

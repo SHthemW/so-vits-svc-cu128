@@ -29,7 +29,7 @@ def load_model_vocoder(
     else:
         config_file = config_path
 
-    with open(config_file, "r") as config:
+    with open(config_file, "r", encoding="utf-8") as config:
         args = yaml.safe_load(config)
     args = DotDict(args)
     

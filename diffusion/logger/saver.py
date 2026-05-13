@@ -40,7 +40,7 @@ class Saver(object):
         
         # save config
         path_config = os.path.join(self.expdir, 'config.yaml')
-        with open(path_config, "w") as out_config:
+        with open(path_config, "w", encoding="utf-8") as out_config:
             yaml.dump(dict(args), out_config)
 
 

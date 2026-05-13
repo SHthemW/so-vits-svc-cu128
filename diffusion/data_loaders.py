@@ -128,7 +128,7 @@ class AudioDataset(Dataset):
             print('Load all the data filelists:', filelists)
         else:
             print('Load the f0, volume data filelists:', filelists)
-        with open(filelists,"r") as f:
+        with open(filelists,"r", encoding="utf-8") as f:
             self.paths = f.read().splitlines()
         for name_ext in tqdm(self.paths, total=len(self.paths)):
             path_audio = name_ext

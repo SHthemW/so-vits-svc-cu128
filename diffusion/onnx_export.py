@@ -21,7 +21,7 @@ def load_model_vocoder(
         model_path,
         device='cpu'):
     config_file = os.path.join(os.path.split(model_path)[0], 'config.yaml')
-    with open(config_file, "r") as config:
+    with open(config_file, "r", encoding="utf-8") as config:
         args = yaml.safe_load(config)
     args = DotDict(args)
     

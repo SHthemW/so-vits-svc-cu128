@@ -341,7 +341,7 @@ def get_hparams(init=True):
 
 def get_hparams_from_dir(model_dir):
   config_save_path = os.path.join(model_dir, "config.json")
-  with open(config_save_path, "r") as f:
+  with open(config_save_path, "r", encoding="utf-8") as f:
     data = f.read()
   config = json.loads(data)
 
@@ -351,7 +351,7 @@ def get_hparams_from_dir(model_dir):
 
 
 def get_hparams_from_file(config_path, infer_mode = False):
-  with open(config_path, "r") as f:
+  with open(config_path, "r", encoding="utf-8") as f:
     data = f.read()
   config = json.loads(data)
   hparams =HParams(**config) if not infer_mode else InferHParams(**config)
@@ -375,7 +375,7 @@ def check_git_hash(model_dir):
       logger.warn("git hash values are different. {}(saved) != {}(current)".format(
         saved_hash[:8], cur_hash[:8]))
   else:
-    open(path, "w").write(cur_hash)
+    open(path, "w", encoding="utf-8").write(cur_hash)
 
 
 def get_logger(model_dir, filename="train.log"):

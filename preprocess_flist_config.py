@@ -114,7 +114,7 @@ if __name__ == "__main__":
         config_template["model"]["filter_channels"] = 512
 
     logger.info("Writing to configs/config.json")
-    with open("configs/config.json", "w") as f:
+    with open("configs/config.json", "w", encoding="utf-8") as f:
         json.dump(config_template, f, indent=2)
     logger.info("Writing to configs/diffusion.yaml")
     du.save_config("configs/diffusion.yaml",d_config_template)

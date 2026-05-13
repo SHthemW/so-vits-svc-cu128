@@ -27,12 +27,12 @@ logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 def read_temp(file_name):
     if not os.path.exists(file_name):
-        with open(file_name, "w") as f:
+        with open(file_name, "w", encoding="utf-8") as f:
             f.write(json.dumps({"info": "temp_dict"}))
         return {}
     else:
         try:
-            with open(file_name, "r") as f:
+            with open(file_name, "r", encoding="utf-8") as f:
                 data = f.read()
             data_dict = json.loads(data)
             if os.path.getsize(file_name) > 50 * 1024 * 1024:
@@ -49,7 +49,7 @@ def read_temp(file_name):
 
 
 def write_temp(file_name, data):
-    with open(file_name, "w") as f:
+    with open(file_name, "w", encoding="utf-8") as f:
         f.write(json.dumps(data))
 
 
