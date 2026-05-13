@@ -168,3 +168,5 @@ pretrain/
 .vscode/launch.json
 
 trained/**/
+.claude/settings.local.json
+webui_config.json

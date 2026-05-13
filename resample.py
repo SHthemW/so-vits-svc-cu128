@@ -74,7 +74,11 @@ def process_all_speakers():
 
 
 def process_all_speakers():
-    process_count = 30 if os.cpu_count() > 60 else (os.cpu_count() - 2 if os.cpu_count() > 4 else 1)
+    if args.num_processes > 0:
+        process_count = args.num_processes
+    else:
+        process_count = 30 if os.cpu_count() > 60 else (os.cpu_count() - 2 if os.cpu_count() > 4 else 1)
+    print(f"Using {process_count} worker processes")
     with ProcessPoolExecutor(max_workers=process_count) as executor:
         for speaker in speakers:
             spk_dir = os.path.join(args.in_dir, speaker)
@@ -91,6 +95,7 @@ if __name__ == "__main__":
     parser.add_argument("--in_dir", type=str, default="./dataset_raw", help="path to source dir")
     parser.add_argument("--out_dir2", type=str, default="./dataset/44k", help="path to target dir")
     parser.add_argument("--skip_loudnorm", action="store_true", help="Skip loudness matching if you have done it")
+    parser.add_argument("--num_processes", type=int, default=0, help="number of worker processes (0=auto)")
     args = parser.parse_args()
 
     print(f"CPU count: {cpu_count()}")

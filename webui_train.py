@@ -4,7 +4,10 @@ import subprocess
 import sys
 import threading
 import time
+import tkinter as tk
+from tkinter import filedialog
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import gradio as gr
@@ -12,6 +15,56 @@ import torch
 
 PYTHON = sys.executable
 ROOT = Path(__file__).parent
+WEBUI_CONFIG = ROOT / "webui_config.json"
+
+
+def _load_webui_config() -> dict:
+    if WEBUI_CONFIG.exists():
+        try:
+            with open(WEBUI_CONFIG, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_webui_config(cfg: dict):
+    with open(WEBUI_CONFIG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+def _get_saved_dataset_dir() -> str:
+    return _load_webui_config().get("dataset_dir", "")
+
+
+def _save_dataset_dir(path: str):
+    cfg = _load_webui_config()
+    cfg["dataset_dir"] = path
+    _save_webui_config(cfg)
+
+
+def _save_webui_config_key(key: str, value):
+    cfg = _load_webui_config()
+    cfg[key] = value
+    _save_webui_config(cfg)
+
+
+def _get_webui_config_key(key: str, default=None):
+    return _load_webui_config().get(key, default)
+
+
+def browse_dataset_dir():
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    folder = filedialog.askdirectory(title="选择数据集目录")
+    root.destroy()
+    if folder:
+        _save_dataset_dir(folder)
+        return folder
+    return _get_saved_dataset_dir()
+
+import re
 
 _procs: dict = {
     "download": None,
@@ -23,8 +76,11 @@ _procs: dict = {
     "index": None,
 }
 _log_buffers: dict = {k: [] for k in _procs}
+_progress: dict = {k: 0.0 for k in _procs}
 _lock = threading.Lock()
 _MAX_LOG_LINES = 500
+
+_PROGRESS_RE = re.compile(r'(\d+)%|(\d+)/(\d+)')
 
 CONFIG_PATH = ROOT / "configs" / "config.json"
 
@@ -34,44 +90,45 @@ PRETRAIN_MODELS = {
     "pretrain/checkpoint_best_legacy_500.pt": {
         "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/hubert_base.pt",
         "desc": "ContentVec 语音编码器 (vec768l12, 必需)",
-        "size_mb": 1200,
+        "size_mb": 181,
         "required": True,
     },
     "pretrain/rmvpe.pt": {
         "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
         "desc": "RMVPE F0 预测器 (推荐)",
-        "size_mb": 140,
+        "size_mb": 181,
         "required": True,
     },
-    "pretrain/nsf_hifigan/model": {
-        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/nsf_hifigan_20221211/model",
-        "desc": "NSF-HiFiGAN 声码器 (推理增强)",
-        "size_mb": 55,
+    "pretrain/nsf_hifigan": {
+        "url": "https://github.com/openvpi/vocoders/releases/download/nsf-hifigan-v1/nsf_hifigan_20221211.zip",
+        "desc": "NSF-HiFiGAN 声码器 (推理增强, zip压缩包)",
+        "size_mb": 50,
         "required": False,
-    },
-    "pretrain/nsf_hifigan/config.json": {
-        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/nsf_hifigan_20221211/config.json",
-        "desc": "NSF-HiFiGAN 配置文件",
-        "size_mb": 1,
-        "required": False,
+        "zip": True,
+        "zip_extract_to": "pretrain/nsf_hifigan",
     },
 }
 
 BASE_MODELS = {
     "logs/44k/G_0.pth": {
-        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/sovits4.0-pretrain/G_0.pth",
-        "desc": "Generator 底模 (强烈推荐，加快收敛)",
-        "size_mb": 550,
+        "url": "https://huggingface.co/Sucial/so-vits-svc4.1-pretrain_model/resolve/main/vec768l12/vol_emb/G_0.pth",
+        "desc": "Generator 底模 vec768l12+vol_emb (强烈推荐)",
+        "size_mb": 199,
     },
     "logs/44k/D_0.pth": {
-        "url": "https://huggingface.co/OptimusPrime/sovitssvc4.0-pretrain-models/resolve/main/sovits4.0-pretrain/D_0.pth",
-        "desc": "Discriminator 底模",
-        "size_mb": 330,
+        "url": "https://huggingface.co/Sucial/so-vits-svc4.1-pretrain_model/resolve/main/vec768l12/vol_emb/D_0.pth",
+        "desc": "Discriminator 底模 vec768l12+vol_emb",
+        "size_mb": 178,
+    },
+    "logs/44k/diffusion/model_0.pt": {
+        "url": "https://huggingface.co/Sucial/so-vits-svc4.1-pretrain_model/resolve/main/diffusion/768l12/model_0.pt",
+        "desc": "扩散模型底模 (可选)",
+        "size_mb": 210,
     },
 }
 
 
-def check_environment() -> str:
+def check_environment(dataset_dir) -> str:
     lines = []
     lines.append("═══ 环境检查 ═══\n")
 
@@ -89,28 +146,34 @@ def check_environment() -> str:
 
     # dataset_raw
     lines.append("\n═══ 数据目录 ═══\n")
-    dataset_raw = ROOT / "dataset_raw"
+    dataset_raw = Path(dataset_dir) if dataset_dir else ROOT / "dataset_raw"
     if dataset_raw.exists():
         speakers = [d.name for d in dataset_raw.iterdir() if d.is_dir()]
         if speakers:
             for spk in speakers:
                 wavs = list((dataset_raw / spk).glob("*.wav"))
-                lines.append(f"[OK] dataset_raw/{spk}/ — {len(wavs)} 个 WAV 文件")
+                lines.append(f"[OK] {dataset_raw}/{spk}/ — {len(wavs)} 个 WAV 文件")
         else:
-            lines.append("[!!] dataset_raw/ 存在但没有说话人子目录")
+            lines.append(f"[!!] {dataset_raw}/ 存在但没有说话人子目录")
     else:
-        lines.append("[!!] dataset_raw/ 目录不存在 — 请创建并放入训练音频")
+        lines.append(f"[!!] {dataset_raw}/ 目录不存在")
 
     # Pretrained models
     lines.append("\n═══ 预训练模型 ═══\n")
     for path, info in PRETRAIN_MODELS.items():
         full = ROOT / path
         tag = "必需" if info["required"] else "可选"
-        if full.exists():
-            size = full.stat().st_size / 1024**2
-            lines.append(f"[OK] {path} ({size:.0f} MB)")
+        if info.get("zip"):
+            if full.exists() and full.is_dir() and any(full.iterdir()):
+                lines.append(f"[OK] {path}/ (已解压)")
+            else:
+                lines.append(f"[缺失] {path}/ — {info['desc']} [{tag}]")
         else:
-            lines.append(f"[缺失] {path} — {info['desc']} [{tag}]")
+            if full.exists():
+                size = full.stat().st_size / 1024**2
+                lines.append(f"[OK] {path} ({size:.0f} MB)")
+            else:
+                lines.append(f"[缺失] {path} — {info['desc']} [{tag}]")
 
     # Base models
     lines.append("\n═══ 训练底模 ═══\n")
@@ -128,9 +191,10 @@ def check_environment() -> str:
 _download_cancel = threading.Event()
 
 
-def _download_file(url: str, dest: Path, key: str):
+def _download_file(url: str, dest: Path, key: str, zip_extract_to: str = None):
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
+    display_name = dest.name
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "so-vits-svc/4.1"})
@@ -143,7 +207,7 @@ def _download_file(url: str, dest: Path, key: str):
                 while True:
                     if _download_cancel.is_set():
                         with _lock:
-                            _log_buffers[key].append(f"[取消] 下载已取消: {dest.name}")
+                            _log_buffers[key].append(f"[取消] 下载已取消: {display_name}")
                         tmp.unlink(missing_ok=True)
                         return
                     chunk = resp.read(block_size)
@@ -156,19 +220,40 @@ def _download_file(url: str, dest: Path, key: str):
                         mb_done = downloaded / 1024**2
                         mb_total = total / 1024**2
                         with _lock:
-                            progress_line = f"  下载中: {dest.name} — {mb_done:.1f}/{mb_total:.1f} MB ({pct}%)"
+                            progress_line = f"  下载中: {display_name} — {mb_done:.1f}/{mb_total:.1f} MB ({pct}%)"
                             if _log_buffers[key] and _log_buffers[key][-1].startswith("  下载中:"):
                                 _log_buffers[key][-1] = progress_line
                             else:
                                 _log_buffers[key].append(progress_line)
 
-        tmp.rename(dest)
-        with _lock:
-            _log_buffers[key].append(f"[完成] {dest.name} 下载成功")
+        if zip_extract_to:
+            extract_dir = ROOT / zip_extract_to
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            with _lock:
+                _log_buffers[key].append(f"  解压中: {display_name} → {zip_extract_to}/")
+            import shutil
+            with zipfile.ZipFile(tmp, "r") as zf:
+                zf.extractall(extract_dir)
+            nested = extract_dir / extract_dir.name
+            if nested.is_dir():
+                for item in nested.iterdir():
+                    dest_item = extract_dir / item.name
+                    if item.is_dir():
+                        shutil.copytree(str(item), str(dest_item), dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(str(item), str(dest_item))
+                shutil.rmtree(str(nested))
+            tmp.unlink(missing_ok=True)
+            with _lock:
+                _log_buffers[key].append(f"[完成] {display_name} 下载并解压成功")
+        else:
+            tmp.rename(dest)
+            with _lock:
+                _log_buffers[key].append(f"[完成] {display_name} 下载成功")
     except Exception as e:
         tmp.unlink(missing_ok=True)
         with _lock:
-            _log_buffers[key].append(f"[错误] 下载失败 {dest.name}: {e}")
+            _log_buffers[key].append(f"[错误] 下载失败 {display_name}: {e}")
 
 
 def start_download(dl_pretrain, dl_base):
@@ -184,13 +269,19 @@ def start_download(dl_pretrain, dl_base):
     if dl_pretrain:
         for path, info in PRETRAIN_MODELS.items():
             full = ROOT / path
-            if not full.exists():
-                tasks.append((info["url"], full))
+            if info.get("zip"):
+                if full.exists() and full.is_dir() and any(full.iterdir()):
+                    continue
+                zip_dest = ROOT / (path.rstrip("/") + ".zip")
+                tasks.append((info["url"], zip_dest, info.get("zip_extract_to")))
+            else:
+                if not full.exists():
+                    tasks.append((info["url"], full, None))
     if dl_base:
         for path, info in BASE_MODELS.items():
             full = ROOT / path
             if not full.exists():
-                tasks.append((info["url"], full))
+                tasks.append((info["url"], full, None))
 
     if not tasks:
         with _lock:
@@ -201,12 +292,12 @@ def start_download(dl_pretrain, dl_base):
     def _worker():
         with _lock:
             _log_buffers[key].append(f"开始下载 {len(tasks)} 个文件...\n")
-        for url, dest in tasks:
+        for url, dest, zip_extract in tasks:
             if _download_cancel.is_set():
                 break
             with _lock:
                 _log_buffers[key].append(f"[开始] {dest.relative_to(ROOT)}")
-            _download_file(url, dest, key)
+            _download_file(url, dest, key, zip_extract_to=zip_extract)
         with _lock:
             _procs[key] = None
             if _download_cancel.is_set():
@@ -234,17 +325,24 @@ def get_download_status():
     return "空闲"
 
 
-def _launch(key: str, args: list) -> str:
+def _launch(key: str, args: list, clear_log: bool = True) -> str:
     with _lock:
         if _procs[key] is not None and _procs[key].poll() is None:
             return f"[{key}] 已经在运行中，请先停止"
-        _log_buffers[key].clear()
+        if clear_log:
+            _log_buffers[key].clear()
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    cmd = [PYTHON] + args
+    with _lock:
+        _log_buffers[key].append(f"[命令] {' '.join(cmd)}")
+        _log_buffers[key].append("")
 
     proc = subprocess.Popen(
-        [PYTHON] + args,
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -258,12 +356,36 @@ def _launch(key: str, args: list) -> str:
         _procs[key] = proc
 
     def _reader():
+        with _lock:
+            _progress[key] = 0.0
         for line in proc.stdout:
+            stripped = line.rstrip()
             with _lock:
-                _log_buffers[key].append(line.rstrip())
-                if len(_log_buffers[key]) > _MAX_LOG_LINES:
-                    _log_buffers[key] = _log_buffers[key][-_MAX_LOG_LINES:]
+                # tqdm/rich 进度行用 \r 覆盖，可能含 \r
+                clean = stripped.replace("\r", "")
+                if clean:
+                    _log_buffers[key].append(clean)
+                    if len(_log_buffers[key]) > _MAX_LOG_LINES:
+                        _log_buffers[key] = _log_buffers[key][-_MAX_LOG_LINES:]
+                # 解析进度
+                m = _PROGRESS_RE.search(stripped)
+                if m:
+                    if m.group(1):
+                        _progress[key] = float(m.group(1)) / 100.0
+                    elif m.group(2) and m.group(3):
+                        total = int(m.group(3))
+                        if total > 0:
+                            _progress[key] = int(m.group(2)) / total
         proc.stdout.close()
+        rc = proc.wait()
+        with _lock:
+            if rc == 0:
+                _progress[key] = 1.0
+                _log_buffers[key].append("")
+                _log_buffers[key].append(f"[完成] 进程正常退出 (返回码 0)")
+            else:
+                _log_buffers[key].append("")
+                _log_buffers[key].append(f"[异常] 进程退出，返回码: {rc}")
 
     threading.Thread(target=_reader, daemon=True).start()
     return f"[{key}] 已启动 (PID {proc.pid})"
@@ -287,6 +409,16 @@ def _get_log(key: str) -> str:
         return "\n".join(_log_buffers[key])
 
 
+def _get_progress(key: str) -> float:
+    with _lock:
+        return _progress[key]
+
+
+def _get_progress_pct(key: str) -> str:
+    p = _get_progress(key)
+    return f"{p * 100:.0f}%"
+
+
 def _get_status(key: str) -> str:
     with _lock:
         proc = _procs[key]
@@ -302,13 +434,66 @@ def _get_status(key: str) -> str:
 
 # ── Stage functions ──────────────────────────────────────────────────────────
 
-def start_resample(skip_loudnorm):
+def start_resample(dataset_dir, skip_loudnorm, num_processes):
+    in_dir = dataset_dir.strip() if dataset_dir else ""
+    if in_dir:
+        _save_dataset_dir(in_dir)
+    if not in_dir:
+        in_dir = "./dataset_raw"
+
+    in_path = Path(in_dir) if Path(in_dir).is_absolute() else ROOT / in_dir
+    if not in_path.exists():
+        return f"[错误] 输入目录不存在: {in_path}"
+    if not in_path.is_dir():
+        return f"[错误] 路径不是目录: {in_path}"
+
+    speakers = [d for d in in_path.iterdir() if d.is_dir()]
+    top_wavs = list(in_path.glob("*.wav"))
+
+    if not speakers and not top_wavs:
+        return f"[错误] 目录中既没有子文件夹也没有 .wav 文件: {in_path}"
+
+    actual_in_path = in_path
+    if not speakers and top_wavs:
+        speaker_name = in_path.name
+        dataset_raw = ROOT / "dataset_raw" / speaker_name
+        dataset_raw.mkdir(parents=True, exist_ok=True)
+        import shutil
+        copied = 0
+        for wav in top_wavs:
+            shutil.copy2(str(wav), str(dataset_raw / wav.name))
+            copied += 1
+        actual_in_path = ROOT / "dataset_raw"
+        with _lock:
+            _log_buffers["resample"].clear()
+            _log_buffers["resample"].append(f"[自动适配] 检测到目录内直接包含 wav 文件（无子文件夹）")
+            _log_buffers["resample"].append(f"  已复制 {copied} 个文件 → dataset_raw/{speaker_name}/")
+            _log_buffers["resample"].append(f"  说话人名称: {speaker_name}")
+            _log_buffers["resample"].append("")
+    else:
+        total_wavs = 0
+        for spk in speakers:
+            total_wavs += len(list(spk.glob("*.wav")))
+        if total_wavs == 0:
+            return f"[错误] 子文件夹中没有 .wav 文件\n期望结构: {in_path}/<说话人名称>/*.wav"
+        with _lock:
+            _log_buffers["resample"].clear()
+            _log_buffers["resample"].append(f"输入目录: {actual_in_path}")
+            _log_buffers["resample"].append(f"发现 {len(speakers)} 个说话人, 共 {total_wavs} 个 WAV 文件")
+            _log_buffers["resample"].append("")
+
+    n_proc = int(num_processes) if num_processes else 0
+    _save_webui_config_key("resample_num_processes", n_proc)
+    _save_webui_config_key("resample_skip_loudnorm", bool(skip_loudnorm))
+
     args = ["resample.py", "--sr2", "44100",
-            "--in_dir", "./dataset_raw",
+            "--in_dir", str(actual_in_path),
             "--out_dir2", "./dataset/44k"]
     if skip_loudnorm:
         args.append("--skip_loudnorm")
-    return _launch("resample", args)
+    if n_proc > 0:
+        args.extend(["--num_processes", str(n_proc)])
+    return _launch("resample", args, clear_log=False)
 
 
 def stop_resample():
@@ -319,11 +504,36 @@ def get_resample_log():
     return _get_log("resample")
 
 
+def get_resample_progress():
+    return _get_progress("resample")
+
+
 def get_resample_status():
-    return _get_status("resample")
+    status = _get_status("resample")
+    if status == "已完成":
+        out_dir = ROOT / "dataset" / "44k"
+        if not out_dir.exists() or not any(out_dir.iterdir()):
+            return "已完成 [警告: dataset/44k 为空，可能输入目录结构不正确]"
+    if status == "未启动":
+        out_dir = ROOT / "dataset" / "44k"
+        if out_dir.exists():
+            speakers = [d for d in out_dir.iterdir() if d.is_dir()]
+            total_wavs = sum(len(list(s.glob("*.wav"))) for s in speakers)
+            if total_wavs > 0:
+                return f"未启动 [检测到已有重采样结果: {len(speakers)} 个说话人, {total_wavs} 个文件]"
+    return status
 
 
 def start_flist(speech_encoder, vol_aug, tiny):
+    _save_webui_config_key("flist_encoder", speech_encoder)
+    _save_webui_config_key("flist_vol_aug", bool(vol_aug))
+    _save_webui_config_key("flist_tiny", bool(tiny))
+    out_dir = ROOT / "dataset" / "44k"
+    if not out_dir.exists():
+        return "[错误] dataset/44k 目录不存在，请先完成第一步（音频重采样）"
+    speakers = [d for d in out_dir.iterdir() if d.is_dir()]
+    if not speakers:
+        return "[错误] dataset/44k 中没有说话人子文件夹，请先完成第一步（音频重采样）"
     args = ["preprocess_flist_config.py",
             "--source_dir", "./dataset/44k",
             "--speech_encoder", speech_encoder]
@@ -342,11 +552,19 @@ def get_flist_log():
     return _get_log("flist")
 
 
+def get_flist_progress():
+    return _get_progress("flist")
+
+
 def get_flist_status():
     return _get_status("flist")
 
 
 def start_hubert(f0_predictor, num_processes, use_diff, device):
+    _save_webui_config_key("hubert_f0", f0_predictor)
+    _save_webui_config_key("hubert_num_processes", int(num_processes))
+    _save_webui_config_key("hubert_use_diff", bool(use_diff))
+    _save_webui_config_key("hubert_device", device)
     args = ["preprocess_hubert_f0.py",
             "--in_dir", "dataset/44k",
             "--f0_predictor", f0_predictor,
@@ -365,6 +583,10 @@ def get_hubert_log():
     return _get_log("hubert")
 
 
+def get_hubert_progress():
+    return _get_progress("hubert")
+
+
 def get_hubert_status():
     return _get_status("hubert")
 
@@ -381,6 +603,10 @@ def get_train_log():
     return _get_log("train")
 
 
+def get_train_progress():
+    return _get_progress("train")
+
+
 def get_train_status():
     return _get_status("train")
 
@@ -395,6 +621,10 @@ def stop_train_diff():
 
 def get_train_diff_log():
     return _get_log("diff")
+
+
+def get_train_diff_progress():
+    return _get_progress("diff")
 
 
 def get_train_diff_status():
@@ -414,6 +644,10 @@ def stop_index():
 
 def get_index_log():
     return _get_log("index")
+
+
+def get_index_progress():
+    return _get_progress("index")
 
 
 def get_index_status():
@@ -454,8 +688,20 @@ def write_train_config(batch_size, epochs, keep_ckpts, fp16_run):
 
 def build_training_tab():
     gr.Markdown("## So-VITS-SVC 训练流程\n"
-                "按顺序完成以下各步骤。请将训练音频放入 `dataset_raw/<说话人名>/` 目录后开始。\n\n"
+                "按顺序完成以下各步骤。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
+
+    with gr.Row():
+        dataset_dir = gr.Textbox(
+            label="数据集目录 (包含说话人子文件夹或直接包含wav的目录，留空则使用默认 dataset_raw/)",
+            placeholder="例如: D:\\my_audio\\singer1_dataset  或留空使用 dataset_raw/",
+            value=_get_saved_dataset_dir(),
+            interactive=True,
+            scale=4,
+        )
+        browse_btn = gr.Button("浏览...", scale=1)
+
+    browse_btn.click(browse_dataset_dir, [], [dataset_dir])
 
     # ── Step 0: Environment check & download ─────────────────────────
     with gr.Accordion("前置步骤：环境检查与模型下载", open=True):
@@ -463,7 +709,7 @@ def build_training_tab():
         with gr.Row():
             env_check_btn = gr.Button("检查环境", variant="primary")
         env_check_output = gr.Textbox(label="检查结果", lines=18, max_lines=30, interactive=False)
-        env_check_btn.click(check_environment, [], [env_check_output])
+        env_check_btn.click(check_environment, [dataset_dir], [env_check_output])
 
         gr.Markdown("---")
         gr.Markdown("**下载缺失的模型文件** (从 HuggingFace 下载，需要网络连接)")
@@ -481,16 +727,26 @@ def build_training_tab():
 
     # ── Step 1: Resample ─────────────────────────────────────────────
     with gr.Accordion("第一步：音频重采样 (resample.py)", open=False):
-        gr.Markdown("将 `dataset_raw/<说话人名>/` 下的原始音频重采样至 44100Hz mono，输出到 `dataset/44k/`")
+        gr.Markdown("将数据集目录下的原始音频重采样至 44100Hz mono，输出到 `dataset/44k/`")
         with gr.Row():
-            resample_skip_loudnorm = gr.Checkbox(label="跳过响度归一化 (--skip_loudnorm)", value=False)
+            resample_skip_loudnorm = gr.Checkbox(
+                label="跳过响度归一化 (--skip_loudnorm)",
+                value=_get_webui_config_key("resample_skip_loudnorm", False),
+            )
+            resample_procs = gr.Slider(
+                label="CPU 核心数 (0=自动)",
+                minimum=0,
+                maximum=max(os.cpu_count() or 1, 1),
+                value=_get_webui_config_key("resample_num_processes", 0),
+                step=1,
+            )
         with gr.Row():
             resample_start_btn = gr.Button("开始重采样", variant="primary")
             resample_stop_btn = gr.Button("停止")
             resample_status = gr.Textbox(label="状态", value=get_resample_status, every=2, interactive=False, scale=2)
         resample_log = gr.Textbox(label="日志", value=get_resample_log, every=3, lines=8, max_lines=15, interactive=False)
 
-        resample_start_btn.click(start_resample, [resample_skip_loudnorm], [resample_status])
+        resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status])
         resample_stop_btn.click(stop_resample, [], [resample_status])
 
     # ── Step 2: flist + config ───────────────────────────────────────
@@ -501,10 +757,12 @@ def build_training_tab():
                 label="语音编码器 (speech_encoder)",
                 choices=["vec768l12", "vec256l9", "hubertsoft", "whisper-ppg",
                          "cnhubertlarge", "dphubert", "whisper-ppg-large", "wavlmbase+"],
-                value="vec768l12"
+                value=_get_webui_config_key("flist_encoder", "vec768l12"),
             )
-            flist_vol_aug = gr.Checkbox(label="音量增强 (--vol_aug)", value=True)
-            flist_tiny = gr.Checkbox(label="Tiny模型 (--tiny)", value=False)
+            flist_vol_aug = gr.Checkbox(label="音量增强 (--vol_aug)",
+                                        value=_get_webui_config_key("flist_vol_aug", True))
+            flist_tiny = gr.Checkbox(label="Tiny模型 (--tiny)",
+                                     value=_get_webui_config_key("flist_tiny", False))
         with gr.Row():
             flist_start_btn = gr.Button("开始生成", variant="primary")
             flist_stop_btn = gr.Button("停止")
@@ -518,10 +776,15 @@ def build_training_tab():
     with gr.Accordion("第三步：提取特征和F0 (preprocess_hubert_f0.py)", open=False):
         gr.Markdown("提取语音内容编码和基频。已处理的文件会自动跳过，支持断点续跑。")
         with gr.Row():
-            hubert_f0 = gr.Dropdown(label="F0预测器", choices=["rmvpe", "crepe", "pm", "dio", "harvest", "fcpe"], value="rmvpe")
-            hubert_procs = gr.Slider(label="并行进程数", minimum=1, maximum=max(os.cpu_count() or 1, 1), value=1, step=1)
-            hubert_diff = gr.Checkbox(label="同时提取扩散模型特征 (--use_diff)", value=True)
-            hubert_dev = gr.Dropdown(label="设备", choices=["cuda:0", "cpu"], value="cuda:0")
+            hubert_f0 = gr.Dropdown(label="F0预测器",
+                                    choices=["rmvpe", "crepe", "pm", "dio", "harvest", "fcpe"],
+                                    value=_get_webui_config_key("hubert_f0", "rmvpe"))
+            hubert_procs = gr.Slider(label="并行进程数", minimum=1, maximum=max(os.cpu_count() or 1, 1),
+                                     value=_get_webui_config_key("hubert_num_processes", 1), step=1)
+            hubert_diff = gr.Checkbox(label="同时提取扩散模型特征 (--use_diff)",
+                                      value=_get_webui_config_key("hubert_use_diff", True))
+            hubert_dev = gr.Dropdown(label="设备", choices=["cuda:0", "cpu"],
+                                     value=_get_webui_config_key("hubert_device", "cuda:0"))
         with gr.Row():
             hubert_start_btn = gr.Button("开始提取", variant="primary")
             hubert_stop_btn = gr.Button("停止")

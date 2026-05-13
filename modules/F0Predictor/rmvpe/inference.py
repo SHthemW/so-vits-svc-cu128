@@ -17,7 +17,7 @@ class RMVPE:
             self.device = device
         model = E2E0(4, 1, (2, 2))
         ckpt = torch.load(model_path, map_location=torch.device(self.device))
-        model.load_state_dict(ckpt['model'])
+        model.load_state_dict(ckpt['model'] if isinstance(ckpt, dict) and 'model' in ckpt else ckpt, strict=False)
         model = model.to(dtype).to(self.device)
         model.eval()
         self.model = model

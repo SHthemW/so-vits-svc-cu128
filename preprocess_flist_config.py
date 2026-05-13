@@ -71,6 +71,7 @@ if __name__ == "__main__":
     shuffle(train)
     shuffle(val)
 
+    os.makedirs(os.path.dirname(args.train_list), exist_ok=True)
     logger.info("Writing " + args.train_list)
     with open(args.train_list, "w") as f:
         for fname in tqdm(train):
