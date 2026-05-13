@@ -73,13 +73,13 @@ if __name__ == "__main__":
 
     os.makedirs(os.path.dirname(args.train_list), exist_ok=True)
     logger.info("Writing " + args.train_list)
-    with open(args.train_list, "w") as f:
+    with open(args.train_list, "w", encoding="utf-8") as f:
         for fname in tqdm(train):
             wavpath = fname
             f.write(wavpath + "\n")
 
     logger.info("Writing " + args.val_list)
-    with open(args.val_list, "w") as f:
+    with open(args.val_list, "w", encoding="utf-8") as f:
         for fname in tqdm(val):
             wavpath = fname
             f.write(wavpath + "\n")
