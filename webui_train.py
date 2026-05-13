@@ -861,11 +861,12 @@ def build_training_tab():
     # ── Training config editor ───────────────────────────────────────
     with gr.Accordion("训练参数配置 (configs/config.json)", open=False):
         gr.Markdown("在启动训练前可在此调整关键参数。修改后点击「保存配置」。")
+        _cfg_batch, _cfg_epochs, _cfg_keep, _cfg_fp16 = read_train_config()
         with gr.Row():
-            cfg_batch = gr.Number(label="batch_size (每批样本数)", value=6, precision=0)
-            cfg_epochs = gr.Number(label="epochs (总训练轮次)", value=10000, precision=0)
-            cfg_keep = gr.Number(label="keep_ckpts (保留检查点数)", value=3, precision=0)
-            cfg_fp16 = gr.Checkbox(label="fp16_run (混合精度训练)", value=False)
+            cfg_batch = gr.Number(label="batch_size (每批样本数)", value=_cfg_batch, precision=0)
+            cfg_epochs = gr.Number(label="epochs (总训练轮次)", value=_cfg_epochs, precision=0)
+            cfg_keep = gr.Number(label="keep_ckpts (保留检查点数)", value=_cfg_keep, precision=0)
+            cfg_fp16 = gr.Checkbox(label="fp16_run (混合精度训练)", value=_cfg_fp16)
         with gr.Row():
             cfg_load_btn = gr.Button("从文件加载")
             cfg_save_btn = gr.Button("保存配置", variant="primary")
