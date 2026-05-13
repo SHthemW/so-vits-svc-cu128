@@ -400,11 +400,18 @@ def _stop(key: str) -> str:
         proc = _procs[key]
     if proc is None or proc.poll() is not None:
         return f"[{key}] 没有正在运行的进程"
-    proc.terminate()
+    pid = proc.pid
     try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True, timeout=10
+        )
+    except Exception:
         proc.kill()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
     return f"[{key}] 已停止"
 
 
@@ -720,7 +727,22 @@ def write_train_config(batch_size, epochs, keep_ckpts, fp16_run):
 
 # ── Gradio UI factory ────────────────────────────────────────────────────────
 
+_AUTOSCROLL_JS = """
+<script>
+(function() {
+    const observer = new MutationObserver(function(mutations) {
+        document.querySelectorAll('textarea[readonly]').forEach(function(el) {
+            el.scrollTop = el.scrollHeight;
+        });
+    });
+    observer.observe(document.body, {childList: true, subtree: true, characterData: true});
+})();
+</script>
+"""
+
+
 def build_training_tab():
+    gr.HTML(value=_AUTOSCROLL_JS, visible=False)
     gr.Markdown("## So-VITS-SVC 训练流程\n"
                 "按顺序完成以下各步骤。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
@@ -755,7 +777,7 @@ def build_training_tab():
             dl_stop_btn = gr.Button("取消下载")
             dl_clear_btn = gr.Button("清除日志")
             dl_status = gr.Textbox(label="状态", value=get_download_status, every=2, interactive=False, scale=2)
-        dl_log = gr.Textbox(label="下载日志", value=get_download_log, every=2, lines=10, max_lines=20, interactive=False, autoscroll=True)
+        dl_log = gr.Textbox(label="下载日志", value=get_download_log, every=2, lines=10, max_lines=20, interactive=False)
 
         dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status])
         dl_stop_btn.click(stop_download, [], [dl_status])
@@ -781,7 +803,7 @@ def build_training_tab():
             resample_stop_btn = gr.Button("停止")
             resample_clear_btn = gr.Button("清除日志")
             resample_status = gr.Textbox(label="状态", value=get_resample_status, every=2, interactive=False, scale=2)
-        resample_log = gr.Textbox(label="日志", value=get_resample_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
+        resample_log = gr.Textbox(label="日志", value=get_resample_log, every=3, lines=8, max_lines=15, interactive=False)
 
         resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status])
         resample_stop_btn.click(stop_resample, [], [resample_status])
@@ -806,7 +828,7 @@ def build_training_tab():
             flist_stop_btn = gr.Button("停止")
             flist_clear_btn = gr.Button("清除日志")
             flist_status = gr.Textbox(label="状态", value=get_flist_status, every=2, interactive=False, scale=2)
-        flist_log = gr.Textbox(label="日志", value=get_flist_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
+        flist_log = gr.Textbox(label="日志", value=get_flist_log, every=3, lines=8, max_lines=15, interactive=False)
 
         flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status])
         flist_stop_btn.click(stop_flist, [], [flist_status])
@@ -830,7 +852,7 @@ def build_training_tab():
             hubert_stop_btn = gr.Button("停止")
             hubert_clear_btn = gr.Button("清除日志")
             hubert_status = gr.Textbox(label="状态", value=get_hubert_status, every=2, interactive=False, scale=2)
-        hubert_log = gr.Textbox(label="日志", value=get_hubert_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
+        hubert_log = gr.Textbox(label="日志", value=get_hubert_log, every=3, lines=8, max_lines=15, interactive=False)
 
         hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status])
         hubert_stop_btn.click(stop_hubert, [], [hubert_status])
@@ -861,7 +883,7 @@ def build_training_tab():
             train_stop_btn = gr.Button("停止训练")
             train_clear_btn = gr.Button("清除日志")
             train_status = gr.Textbox(label="状态", value=get_train_status, every=2, interactive=False, scale=2)
-        train_log = gr.Textbox(label="训练日志", value=get_train_log, every=3, lines=15, max_lines=30, interactive=False, autoscroll=True)
+        train_log = gr.Textbox(label="训练日志", value=get_train_log, every=3, lines=15, max_lines=30, interactive=False)
 
         train_start_btn.click(start_train, [], [train_status])
         train_stop_btn.click(stop_train, [], [train_status])
@@ -876,7 +898,7 @@ def build_training_tab():
             diff_stop_btn = gr.Button("停止")
             diff_clear_btn = gr.Button("清除日志")
             diff_status = gr.Textbox(label="状态", value=get_train_diff_status, every=2, interactive=False, scale=2)
-        diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, every=3, lines=12, max_lines=25, interactive=False, autoscroll=True)
+        diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, every=3, lines=12, max_lines=25, interactive=False)
 
         diff_start_btn.click(start_train_diff, [], [diff_status])
         diff_stop_btn.click(stop_train_diff, [], [diff_status])
@@ -891,7 +913,7 @@ def build_training_tab():
             index_stop_btn = gr.Button("停止")
             index_clear_btn = gr.Button("清除日志")
             index_status = gr.Textbox(label="状态", value=get_index_status, every=2, interactive=False, scale=2)
-        index_log = gr.Textbox(label="日志", value=get_index_log, every=3, lines=8, max_lines=15, interactive=False, autoscroll=True)
+        index_log = gr.Textbox(label="日志", value=get_index_log, every=3, lines=8, max_lines=15, interactive=False)
 
         index_start_btn.click(start_index, [], [index_status])
         index_stop_btn.click(stop_index, [], [index_status])
