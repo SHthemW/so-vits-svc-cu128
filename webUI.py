@@ -21,7 +21,7 @@ from compress_model import removeOptimizer
 from edgetts.tts_voices import SUPPORTED_LANGUAGES
 from inference.infer_tool import Svc
 from utils import mix_model
-from webui_train import build_training_tab
+from webui_train import build_training_tab, _get_webui_config_key, _save_webui_config_key
 
 logging.getLogger('numba').setLevel(logging.WARNING)
 logging.getLogger('markdown_it').setLevel(logging.WARNING)
@@ -109,6 +109,8 @@ def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_
                 )
         spks = list(model.spk2id.keys())
         device_name = torch.cuda.get_device_properties(model.dev).name if "cuda" in str(model.dev) else str(model.dev)
+        if local_model_enabled and local_model_selection:
+            _save_webui_config_key("last_local_model", local_model_selection)
         msg = f"成功加载模型到设备{device_name}上\n"
         if cluster_model_path is None:
             msg += "未加载聚类模型或特征检索模型\n"
@@ -302,7 +304,10 @@ with gr.Blocks(
                         with gr.TabItem('本地') as local_model_tab_local:
                             gr.Markdown(f'模型应当放置于{local_model_root}文件夹下')
                             local_model_refresh_btn = gr.Button('刷新本地模型列表')
-                            local_model_selection = gr.Dropdown(label='选择模型文件夹', choices=[], interactive=True)
+                            _local_models = scan_local_models()
+                            _last_model = _get_webui_config_key("last_local_model", None)
+                            _last_model_val = _last_model if _last_model in _local_models else None
+                            local_model_selection = gr.Dropdown(label='选择模型文件夹', choices=_local_models, value=_last_model_val, interactive=True)
                     with gr.Row():
                         diff_model_path = gr.File(label="选择扩散模型文件")
                         diff_config_path = gr.File(label="选择扩散模型配置文件")
