@@ -727,34 +727,6 @@ def write_train_config(batch_size, epochs, keep_ckpts, fp16_run):
 
 # ── Gradio UI factory ────────────────────────────────────────────────────────
 
-_AUTOSCROLL_JS = """
-<script>
-(function() {
-    // Auto-scroll readonly textareas to bottom
-    const observer = new MutationObserver(function(mutations) {
-        document.querySelectorAll('textarea[readonly]').forEach(function(el) {
-            el.scrollTop = el.scrollHeight;
-        });
-    });
-    observer.observe(document.body, {childList: true, subtree: true, characterData: true});
-
-    // Auto-reconnect on Gradio connection error
-    let _reconnecting = false;
-    const _connObserver = new MutationObserver(function() {
-        if (_reconnecting) return;
-        const toast = document.querySelector('.toast-wrap');
-        if (toast && toast.textContent.toLowerCase().includes('connection')) {
-            _reconnecting = true;
-            console.log('[WebUI] Connection lost, reloading in 3s...');
-            setTimeout(function() { location.reload(); }, 3000);
-        }
-    });
-    _connObserver.observe(document.body, {childList: true, subtree: true});
-})();
-</script>
-"""
-
-
 def _poll_all():
     """Single poll function that returns all status/log values at once."""
     return (
@@ -773,7 +745,6 @@ def _poll_tick():
 
 
 def build_training_tab():
-    gr.HTML(value=_AUTOSCROLL_JS, visible=False)
     gr.Markdown("## So-VITS-SVC 训练流程\n"
                 "按顺序完成以下各步骤。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")

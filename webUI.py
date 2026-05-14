@@ -48,7 +48,7 @@ def upload_mix_append_file(files,sfiles):
         else:
             file_paths = [file.name for file in chain(files,sfiles)]
         p = {file:100 for file in file_paths}
-        return file_paths,mix_model_output1.update(value=json.dumps(p,indent=2))
+        return file_paths, gr.Textbox(value=json.dumps(p, indent=2))
     except Exception as e:
         if debug:
             traceback.print_exc()
@@ -71,10 +71,10 @@ def mix_submit_click(js,mode):
 
 def updata_mix_info(files):
     try:
-        if files is None :
-            return mix_model_output1.update(value="")
+        if files is None:
+            return gr.Textbox(value="")
         p = {file.name:100 for file in files}
-        return mix_model_output1.update(value=json.dumps(p,indent=2))
+        return gr.Textbox(value=json.dumps(p, indent=2))
     except Exception as e:
         if debug:
             traceback.print_exc()
@@ -125,7 +125,7 @@ def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_
         msg += "当前模型的可用音色：\n"
         for i in spks:
             msg += i + " "
-        return sid.update(choices = spks,value=spks[0]), msg
+        return gr.Dropdown(choices=spks, value=spks[0]), msg
     except Exception as e:
         if debug:
             traceback.print_exc()
@@ -135,12 +135,12 @@ def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_
 def modelUnload():
     global model
     if model is None:
-        return sid.update(choices = [],value=""),"没有模型需要卸载!"
+        return gr.Dropdown(choices=[], value=""), "没有模型需要卸载!"
     else:
         model.unload_model()
         model = None
         torch.cuda.empty_cache()
-        return sid.update(choices = [],value=""),"模型卸载完毕!"
+        return gr.Dropdown(choices=[], value=""), "模型卸载完毕!"
     
 def vc_infer(output_format, sid, audio_path, truncated_basename, vc_transform, auto_f0, cluster_ratio, slice_db, noise_scale, pad_seconds, cl_num, lg_num, lgr_num, f0_predictor, enhancer_adaptive_key, cr_threshold, k_step, use_spk_mix, second_encoding, loudness_envelope_adjustment):
     global model
@@ -269,7 +269,7 @@ def scan_local_models():
 
 def local_model_refresh_fn():
     choices = scan_local_models()
-    return gr.Dropdown.update(choices=choices)
+    return gr.Dropdown(choices=choices)
 
 def debug_change():
     global debug
@@ -430,7 +430,7 @@ with gr.Blocks(
         debug_button.change(debug_change,[],[])
         model_load_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection],[sid,sid_output])
         model_unload_button.click(modelUnload,[],[sid,sid_output])
-    app.queue(concurrency_count=8)
+    app.queue(default_concurrency_limit=8)
     os.system("start http://127.0.0.1:7860")
     app.launch()
 
