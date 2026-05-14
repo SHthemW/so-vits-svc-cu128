@@ -727,9 +727,13 @@ def write_train_config(batch_size, epochs, keep_ckpts, fp16_run):
 
 # ── Gradio UI factory ────────────────────────────────────────────────────────
 
+_poll_prev: list = [None] * 14
+
+
 def _poll_all():
-    """Single poll function that returns all status/log values at once."""
-    return (
+    """Single poll function that returns all status/log values at once.
+    Returns gr.update() for unchanged outputs to avoid UI flicker."""
+    fresh = [
         get_download_status(), get_download_log(),
         get_resample_status(), get_resample_log(),
         get_flist_status(), get_flist_log(),
@@ -737,7 +741,15 @@ def _poll_all():
         get_train_status(), get_train_log(),
         get_train_diff_status(), get_train_diff_log(),
         get_index_status(), get_index_log(),
-    )
+    ]
+    result = []
+    for i, val in enumerate(fresh):
+        if val == _poll_prev[i]:
+            result.append(gr.update())
+        else:
+            _poll_prev[i] = val
+            result.append(val)
+    return result
 
 
 def _poll_tick():
