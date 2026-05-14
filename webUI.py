@@ -21,6 +21,7 @@ from compress_model import removeOptimizer
 from edgetts.tts_voices import SUPPORTED_LANGUAGES
 from inference.infer_tool import Svc
 from utils import mix_model
+from webui_manage import build_management_tab
 from webui_train import build_training_tab, _get_webui_config_key, _save_webui_config_key
 
 logging.getLogger('numba').setLevel(logging.WARNING)
@@ -285,6 +286,8 @@ with gr.Blocks(
     with gr.Tabs():
         with gr.TabItem("训练"):
             build_training_tab()
+        with gr.TabItem("管理"):
+            build_management_tab()
         with gr.TabItem("推理"):
             gr.Markdown(value="""
                 So-vits-svc 4.0 推理 webui
