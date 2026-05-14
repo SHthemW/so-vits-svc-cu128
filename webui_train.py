@@ -730,15 +730,46 @@ def write_train_config(batch_size, epochs, keep_ckpts, fp16_run):
 _AUTOSCROLL_JS = """
 <script>
 (function() {
+    // Auto-scroll readonly textareas to bottom
     const observer = new MutationObserver(function(mutations) {
         document.querySelectorAll('textarea[readonly]').forEach(function(el) {
             el.scrollTop = el.scrollHeight;
         });
     });
     observer.observe(document.body, {childList: true, subtree: true, characterData: true});
+
+    // Auto-reconnect on Gradio connection error
+    let _reconnecting = false;
+    const _connObserver = new MutationObserver(function() {
+        if (_reconnecting) return;
+        const toast = document.querySelector('.toast-wrap');
+        if (toast && toast.textContent.toLowerCase().includes('connection')) {
+            _reconnecting = true;
+            console.log('[WebUI] Connection lost, reloading in 3s...');
+            setTimeout(function() { location.reload(); }, 3000);
+        }
+    });
+    _connObserver.observe(document.body, {childList: true, subtree: true});
 })();
 </script>
 """
+
+
+def _poll_all():
+    """Single poll function that returns all status/log values at once."""
+    return (
+        get_download_status(), get_download_log(),
+        get_resample_status(), get_resample_log(),
+        get_flist_status(), get_flist_log(),
+        get_hubert_status(), get_hubert_log(),
+        get_train_status(), get_train_log(),
+        get_train_diff_status(), get_train_diff_log(),
+        get_index_status(), get_index_log(),
+    )
+
+
+def _poll_tick():
+    return time.time()
 
 
 def build_training_tab():
@@ -775,8 +806,8 @@ def build_training_tab():
         with gr.Row():
             dl_start_btn = gr.Button("开始下载", variant="primary")
             dl_stop_btn = gr.Button("取消下载")
-            dl_status = gr.Textbox(label="状态", value=get_download_status, every=2, interactive=False, scale=2)
-        dl_log = gr.Textbox(label="下载日志", value=get_download_log, every=2, lines=10, max_lines=20, interactive=False)
+            dl_status = gr.Textbox(label="状态", value=get_download_status, interactive=False, scale=2)
+        dl_log = gr.Textbox(label="下载日志", value=get_download_log, lines=10, max_lines=20, interactive=False)
         dl_clear_btn = gr.Button("清除日志", size="sm")
 
         dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status])
@@ -801,8 +832,8 @@ def build_training_tab():
         with gr.Row():
             resample_start_btn = gr.Button("开始重采样", variant="primary")
             resample_stop_btn = gr.Button("停止")
-            resample_status = gr.Textbox(label="状态", value=get_resample_status, every=2, interactive=False, scale=2)
-        resample_log = gr.Textbox(label="日志", value=get_resample_log, every=3, lines=8, max_lines=15, interactive=False)
+            resample_status = gr.Textbox(label="状态", value=get_resample_status, interactive=False, scale=2)
+        resample_log = gr.Textbox(label="日志", value=get_resample_log, lines=8, max_lines=15, interactive=False)
         resample_clear_btn = gr.Button("清除日志", size="sm")
 
         resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status])
@@ -826,8 +857,8 @@ def build_training_tab():
         with gr.Row():
             flist_start_btn = gr.Button("开始生成", variant="primary")
             flist_stop_btn = gr.Button("停止")
-            flist_status = gr.Textbox(label="状态", value=get_flist_status, every=2, interactive=False, scale=2)
-        flist_log = gr.Textbox(label="日志", value=get_flist_log, every=3, lines=8, max_lines=15, interactive=False)
+            flist_status = gr.Textbox(label="状态", value=get_flist_status, interactive=False, scale=2)
+        flist_log = gr.Textbox(label="日志", value=get_flist_log, lines=8, max_lines=15, interactive=False)
         flist_clear_btn = gr.Button("清除日志", size="sm")
 
         flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status])
@@ -850,8 +881,8 @@ def build_training_tab():
         with gr.Row():
             hubert_start_btn = gr.Button("开始提取", variant="primary")
             hubert_stop_btn = gr.Button("停止")
-            hubert_status = gr.Textbox(label="状态", value=get_hubert_status, every=2, interactive=False, scale=2)
-        hubert_log = gr.Textbox(label="日志", value=get_hubert_log, every=3, lines=8, max_lines=15, interactive=False)
+            hubert_status = gr.Textbox(label="状态", value=get_hubert_status, interactive=False, scale=2)
+        hubert_log = gr.Textbox(label="日志", value=get_hubert_log, lines=8, max_lines=15, interactive=False)
         hubert_clear_btn = gr.Button("清除日志", size="sm")
 
         hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status])
@@ -882,8 +913,8 @@ def build_training_tab():
         with gr.Row():
             train_start_btn = gr.Button("开始训练", variant="primary")
             train_stop_btn = gr.Button("停止训练")
-            train_status = gr.Textbox(label="状态", value=get_train_status, every=2, interactive=False, scale=2)
-        train_log = gr.Textbox(label="训练日志", value=get_train_log, every=3, lines=15, max_lines=30, interactive=False)
+            train_status = gr.Textbox(label="状态", value=get_train_status, interactive=False, scale=2)
+        train_log = gr.Textbox(label="训练日志", value=get_train_log, lines=15, max_lines=30, interactive=False)
         train_clear_btn = gr.Button("清除日志", size="sm")
 
         train_start_btn.click(start_train, [], [train_status])
@@ -897,8 +928,8 @@ def build_training_tab():
         with gr.Row():
             diff_start_btn = gr.Button("开始训练扩散模型", variant="primary")
             diff_stop_btn = gr.Button("停止")
-            diff_status = gr.Textbox(label="状态", value=get_train_diff_status, every=2, interactive=False, scale=2)
-        diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, every=3, lines=12, max_lines=25, interactive=False)
+            diff_status = gr.Textbox(label="状态", value=get_train_diff_status, interactive=False, scale=2)
+        diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, lines=12, max_lines=25, interactive=False)
         diff_clear_btn = gr.Button("清除日志", size="sm")
 
         diff_start_btn.click(start_train_diff, [], [diff_status])
@@ -912,10 +943,25 @@ def build_training_tab():
         with gr.Row():
             index_start_btn = gr.Button("开始构建索引", variant="primary")
             index_stop_btn = gr.Button("停止")
-            index_status = gr.Textbox(label="状态", value=get_index_status, every=2, interactive=False, scale=2)
-        index_log = gr.Textbox(label="日志", value=get_index_log, every=3, lines=8, max_lines=15, interactive=False)
+            index_status = gr.Textbox(label="状态", value=get_index_status, interactive=False, scale=2)
+        index_log = gr.Textbox(label="日志", value=get_index_log, lines=8, max_lines=15, interactive=False)
         index_clear_btn = gr.Button("清除日志", size="sm")
 
         index_start_btn.click(start_index, [], [index_status])
         index_stop_btn.click(stop_index, [], [index_status])
         index_clear_btn.click(clear_index_log, [], [index_log])
+
+    # ── Single timer for all status/log polling ─────────────────────
+    _timer = gr.Number(value=_poll_tick, every=5, visible=False)
+    _timer.change(
+        _poll_all, [],
+        [
+            dl_status, dl_log,
+            resample_status, resample_log,
+            flist_status, flist_log,
+            hubert_status, hubert_log,
+            train_status, train_log,
+            diff_status, diff_log,
+            index_status, index_log,
+        ],
+    )
