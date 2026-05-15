@@ -74,6 +74,7 @@ _procs: dict = {
     "train": None,
     "diff": None,
     "index": None,
+    "cluster": None,
 }
 _log_buffers: dict = {k: [] for k in _procs}
 _progress: dict = {k: 0.0 for k in _procs}
@@ -695,6 +696,28 @@ def get_index_status():
     return _get_status("index")
 
 
+def start_cluster():
+    return _launch("cluster", ["-m", "cluster.train_cluster",
+                                "--dataset", "dataset/44k",
+                                "--output", "logs/44k"])
+
+
+def stop_cluster():
+    return _stop("cluster")
+
+
+def get_cluster_log():
+    return _get_log("cluster")
+
+
+def clear_cluster_log():
+    return _clear_log("cluster")
+
+
+def get_cluster_status():
+    return _get_status("cluster")
+
+
 # ── Config helpers ───────────────────────────────────────────────────────────
 
 def read_train_config():
@@ -727,7 +750,7 @@ def write_train_config(batch_size, epochs, keep_ckpts, fp16_run):
 
 # ── Gradio UI factory ────────────────────────────────────────────────────────
 
-_poll_prev: list = [None] * 14
+_poll_prev: list = [None] * 16
 
 
 def _poll_all():
@@ -741,6 +764,7 @@ def _poll_all():
         get_train_status(), get_train_log(),
         get_train_diff_status(), get_train_diff_log(),
         get_index_status(), get_index_log(),
+        get_cluster_status(), get_cluster_log(),
     ]
     result = []
     for i, val in enumerate(fresh):
@@ -934,6 +958,21 @@ def build_training_tab():
         index_stop_btn.click(stop_index, [], [index_status])
         index_clear_btn.click(clear_index_log, [], [index_log])
 
+    # ── Step 7: Cluster ─────────────────────────────────────────────
+    with gr.Accordion("第七步（可选）：训练聚类模型 (cluster/train_cluster.py)", open=False):
+        gr.Markdown("训练 KMeans 聚类模型，可作为特征检索的替代方案用于推理时音色增强。\n\n"
+                    "输出文件: `logs/44k/kmeans_10000.pt`")
+        with gr.Row():
+            cluster_start_btn = gr.Button("开始训练聚类模型", variant="primary")
+            cluster_stop_btn = gr.Button("停止")
+            cluster_status = gr.Textbox(label="状态", value=get_cluster_status, interactive=False, scale=2)
+        cluster_log = gr.Textbox(label="日志", value=get_cluster_log, lines=8, max_lines=15, interactive=False)
+        cluster_clear_btn = gr.Button("清除日志", size="sm")
+
+        cluster_start_btn.click(start_cluster, [], [cluster_status])
+        cluster_stop_btn.click(stop_cluster, [], [cluster_status])
+        cluster_clear_btn.click(clear_cluster_log, [], [cluster_log])
+
     # ── Single timer for all status/log polling ─────────────────────
     _timer = gr.Number(value=_poll_tick, every=5, visible=False)
     _timer.change(
@@ -946,5 +985,6 @@ def build_training_tab():
             train_status, train_log,
             diff_status, diff_log,
             index_status, index_log,
+            cluster_status, cluster_log,
         ],
     )
