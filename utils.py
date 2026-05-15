@@ -485,7 +485,7 @@ def train_index(spk_name,root_dir = "dataset/44k/"):  #from: RVC https://github.
                 MiniBatchKMeans(
                     n_clusters=n_clusters,
                     verbose=True,
-                    batch_size=256,
+                    batch_size=4096,
                     compute_labels=False,
                     init="random",
                 )
