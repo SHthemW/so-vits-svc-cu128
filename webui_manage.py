@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import pickle
 import shutil
 import tkinter as tk
 from datetime import datetime
@@ -75,6 +76,9 @@ def scan_diff_checkpoints() -> list[str]:
 
 def _parse_selection(label: str) -> str:
     return label.split("|")[0].strip() if label else ""
+
+
+FEATURE_PATTERNS = ["feature_and_index.pkl", "kmeans_*.pt"]
 
 
 def _get_spk_name() -> str:
@@ -171,7 +175,7 @@ def browse_export_dir():
     return folder if folder else ""
 
 
-def export_model(ckpt_selection: str, diff_selection: str, export_dir: str):
+def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str, export_dir: str):
     ckpt_name = _parse_selection(ckpt_selection)
     if not ckpt_name:
         return "请选择要导出的主模型检查点"
@@ -220,6 +224,16 @@ def export_model(ckpt_selection: str, diff_selection: str, export_dir: str):
         else:
             result_lines.append(f"⚠ 扩散模型文件不存在: {diff_src}")
 
+    feat_name = _parse_selection(feat_selection) if feat_selection else ""
+    if feat_name:
+        feat_src = LOGS_DIR / feat_name
+        if feat_src.exists():
+            feat_out = out_dir / feat_name
+            shutil.copy2(str(feat_src), str(feat_out))
+            result_lines.append(f"✓ 特征检索模型已导出: {feat_out}")
+        else:
+            result_lines.append(f"⚠ 特征检索模型文件不存在: {feat_src}")
+
     return "\n".join(result_lines)
 
 
@@ -265,6 +279,73 @@ def delete_exported_model(selection: str):
     return f"✓ 已删除: {full_dir}", gr.Dropdown(choices=scan_exported_models(), value=None)
 
 
+# ── Feature retrieval / cluster models ───────────────────────────────────────
+
+def scan_feature_models() -> list[str]:
+    if not LOGS_DIR.exists():
+        return []
+    choices = []
+    for pattern in FEATURE_PATTERNS:
+        for f in sorted(LOGS_DIR.glob(pattern)):
+            size = _fmt_size(f.stat().st_size)
+            mtime = _fmt_time(f.stat().st_mtime)
+            kind = "FAISS 特征检索" if f.suffix == ".pkl" else "KMeans 聚类"
+            extra = _get_feature_detail(f)
+            label = f"{f.name} | {kind} | {size} | {mtime}"
+            if extra:
+                label += f" | {extra}"
+            choices.append(label)
+    return choices
+
+
+def _get_feature_detail(path: Path) -> str:
+    try:
+        if path.suffix == ".pkl":
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            if isinstance(data, dict):
+                spks = list(data.keys())
+                total = sum(idx.ntotal for idx in data.values() if hasattr(idx, "ntotal"))
+                return f"{len(spks)}个说话人, {total}向量"
+        elif path.suffix == ".pt":
+            import torch
+            data = torch.load(str(path), map_location="cpu", weights_only=False)
+            if isinstance(data, dict):
+                spks = [k for k in data.keys() if k != "__model__"]
+                return f"{len(spks)}个说话人"
+    except Exception:
+        pass
+    return ""
+
+
+def get_feature_info(selection: str) -> str:
+    name = _parse_selection(selection)
+    if not name:
+        return ""
+    f = LOGS_DIR / name
+    lines = [f"文件: {f}"]
+    if f.exists():
+        lines.append(f"大小: {_fmt_size(f.stat().st_size)}")
+        lines.append(f"修改时间: {_fmt_time(f.stat().st_mtime)}")
+        kind = "FAISS 特征检索索引" if f.suffix == ".pkl" else "KMeans 聚类模型"
+        lines.append(f"类型: {kind}")
+        detail = _get_feature_detail(f)
+        if detail:
+            lines.append(f"详情: {detail}")
+    return "\n".join(lines)
+
+
+def delete_feature_model(selection: str):
+    name = _parse_selection(selection)
+    if not name:
+        return "请先选择一个模型", gr.Dropdown(choices=scan_feature_models())
+    f = LOGS_DIR / name
+    if f.exists():
+        os.remove(f)
+        return f"✓ 已删除: {name}", gr.Dropdown(choices=scan_feature_models(), value=None)
+    return "文件不存在", gr.Dropdown(choices=scan_feature_models())
+
+
 # ── Gradio UI ─────────────────────────────────────────────────────────────────
 
 def build_management_tab():
@@ -293,12 +374,25 @@ def build_management_tab():
             diff_del_btn = gr.Button("删除选中检查点")
         diff_status = gr.Textbox(label="操作结果", interactive=False)
 
+        gr.Markdown("---")
+        gr.Markdown("**特征检索 / 聚类模型**")
+        with gr.Row():
+            feat_dd = gr.Dropdown(label="选择模型", choices=scan_feature_models(),
+                                  interactive=True, scale=3)
+            feat_refresh = gr.Button("刷新", scale=1)
+        feat_info = gr.Textbox(label="详情", interactive=False, lines=5)
+        with gr.Row():
+            feat_del_btn = gr.Button("删除选中模型")
+        feat_status = gr.Textbox(label="操作结果", interactive=False)
+
     with gr.Accordion("导出模型", open=True):
         gr.Markdown("将训练检查点压缩（去除 optimizer 权重）并连同配置文件导出到指定目录，可直接用于推理。")
         with gr.Row():
             export_ckpt_dd = gr.Dropdown(label="主模型检查点", choices=scan_checkpoints(),
                                          interactive=True, scale=2)
             export_diff_dd = gr.Dropdown(label="扩散模型检查点 (可选)", choices=scan_diff_checkpoints(),
+                                          interactive=True, scale=2)
+            export_feat_dd = gr.Dropdown(label="特征检索/聚类模型 (可选)", choices=scan_feature_models(),
                                           interactive=True, scale=2)
         with gr.Row():
             export_dir_input = gr.Textbox(label="导出目录",
@@ -327,8 +421,12 @@ def build_management_tab():
     diff_refresh.click(lambda: gr.Dropdown(choices=scan_diff_checkpoints()), [], [diff_dd])
     diff_del_btn.click(delete_diff_checkpoint, [diff_dd], [diff_status, diff_dd])
 
+    feat_dd.change(get_feature_info, [feat_dd], [feat_info])
+    feat_refresh.click(lambda: gr.Dropdown(choices=scan_feature_models()), [], [feat_dd])
+    feat_del_btn.click(delete_feature_model, [feat_dd], [feat_status, feat_dd])
+
     export_browse.click(browse_export_dir, [], [export_dir_input])
-    export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_dir_input], [export_output])
+    export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd, export_dir_input], [export_output])
 
     exported_dd.change(get_exported_info, [exported_dd], [exported_info])
     exported_refresh.click(lambda: gr.Dropdown(choices=scan_exported_models()), [], [exported_dd])
