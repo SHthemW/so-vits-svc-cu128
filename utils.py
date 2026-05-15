@@ -477,15 +477,15 @@ def train_index(spk_name,root_dir = "dataset/44k/"):  #from: RVC https://github.
     np.random.shuffle(big_npy_idx)
     big_npy = big_npy[big_npy_idx]
     if big_npy.shape[0] > 2e5:
-        # if(1):
-        info = "Trying doing kmeans %s shape to 10k centers." % big_npy.shape[0]
+        n_clusters = min(10000, big_npy.shape[0] // 20)
+        info = "Trying doing kmeans %s shape to %sk centers." % (big_npy.shape[0], n_clusters // 1000)
         print(info)
         try:
             big_npy = (
                 MiniBatchKMeans(
-                    n_clusters=10000,
+                    n_clusters=n_clusters,
                     verbose=True,
-                    batch_size=256 * n_cpu,
+                    batch_size=256,
                     compute_labels=False,
                     init="random",
                 )
