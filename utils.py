@@ -477,15 +477,27 @@ def train_index(spk_name,root_dir = "dataset/44k/"):  #from: RVC https://github.
     np.random.shuffle(big_npy_idx)
     big_npy = big_npy[big_npy_idx]
     if big_npy.shape[0] > 2e5:
-        n_clusters = min(10000, big_npy.shape[0] // 20)
-        info = "Trying doing kmeans %s shape to %sk centers." % (big_npy.shape[0], n_clusters // 1000)
-        print(info)
+        n_samples = big_npy.shape[0]
+        n_clusters = min(10000, n_samples // 20)
+        mem_avail = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_AVPHYS_PAGES") if hasattr(os, "sysconf") else None
+        if mem_avail is None:
+            try:
+                import psutil
+                mem_avail = psutil.virtual_memory().available
+            except ImportError:
+                mem_avail = 4 * 1024 ** 3
+        dim = big_npy.shape[1]
+        row_bytes = dim * 4
+        max_batch_by_mem = int(mem_avail * 0.1 / row_bytes)
+        batch_size = max(256, min(max_batch_by_mem, n_samples // 50, 16384))
+        print(f"Trying kmeans: {n_samples} vectors -> {n_clusters} centers, "
+              f"batch_size={batch_size}, available_mem={mem_avail / 1024 ** 3:.1f}GB")
         try:
             big_npy = (
                 MiniBatchKMeans(
                     n_clusters=n_clusters,
                     verbose=True,
-                    batch_size=4096,
+                    batch_size=batch_size,
                     compute_labels=False,
                     init="random",
                 )
