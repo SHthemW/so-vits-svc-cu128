@@ -3,7 +3,7 @@ from sklearn.cluster import KMeans
 
 
 def get_cluster_model(ckpt_path):
-    checkpoint = torch.load(ckpt_path)
+    checkpoint = torch.load(ckpt_path, weights_only=False)
     kmeans_dict = {}
     for spk, ckpt in checkpoint.items():
         km = KMeans(ckpt["n_features_in_"])
