@@ -170,3 +170,5 @@ pretrain/
 trained/**/
 .claude/settings.local.json
 webui_config.json
+get-pip.py
+.pip-wheels/
