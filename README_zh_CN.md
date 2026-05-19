@@ -25,6 +25,12 @@ python webUI.py
 - `filelists` 始终以 UTF-8 写入，避免中文文件名导致训练中断。
 - Gradio 从 3.36 升级到 4.44，改善 Windows 兼容性。
 
+### Python 版本
+
+- 需要 **Python 3.9 ~ 3.10**。
+- 实测 **Python 3.9.8** 可正常运行。
+- Python 3.8 不受支持（PyTorch 2.6 已不再支持）。Python 3.11+ 不受支持（`fairseq==0.12.2` 不兼容）。
+
 ### PyTorch 兼容性
 
 - 测试环境为 **CUDA 12.8** + PyTorch 2.6。
