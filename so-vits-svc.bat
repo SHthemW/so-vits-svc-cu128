@@ -11,21 +11,21 @@ echo.
 set "script_dir=%~dp0"
 set "script_dir=%script_dir:~0,-1%"
 
-set "python_home=%script_dir%\python_env\Python"
+set "venv_dir=%script_dir%\python_env"
 
-if not exist "%python_home%\python.exe" (
-    echo [错误] 找不到捆绑的 Python 环境: %python_home%
+if not exist "%venv_dir%\Python\python.exe" (
+    echo [错误] 找不到捆绑的 Python 环境: %venv_dir%\Python\
     echo 请确保 python_env\Python\ 目录完整。
     pause
     exit /b 1
 )
 
-set "pyvenv_config=%script_dir%\python_env\pyvenv.cfg"
+set "pyvenv_config=%venv_dir%\pyvenv.cfg"
 break > "%pyvenv_config%"
-echo home = %python_home%>> "%pyvenv_config%"
+echo home = %venv_dir%\Python>> "%pyvenv_config%"
 echo include-system-site-packages = false>> "%pyvenv_config%"
 echo version = 3.9.8>> "%pyvenv_config%"
 
-"%script_dir%\python_env\Scripts\python.exe" webUI.py
+"%venv_dir%\Scripts\python.exe" webUI.py
 
 pause
