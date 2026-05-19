@@ -112,6 +112,15 @@ def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_
         device_name = torch.cuda.get_device_properties(model.dev).name if "cuda" in str(model.dev) else str(model.dev)
         if local_model_enabled and local_model_selection:
             _save_webui_config_key("last_local_model", local_model_selection)
+        else:
+            _save_webui_config_key("last_upload_model", model_path)
+            _save_webui_config_key("last_upload_config", config_path)
+        if cluster_model_path is not None:
+            _save_webui_config_key("last_cluster_model", cluster_model_path.name)
+        if diff_model_path is not None:
+            _save_webui_config_key("last_diff_model", diff_model_path.name)
+        if diff_config_path is not None:
+            _save_webui_config_key("last_diff_config", diff_config_path.name)
         msg = f"成功加载模型到设备{device_name}上\n"
         if cluster_model_path is None:
             msg += "未加载聚类模型或特征检索模型\n"
@@ -301,9 +310,13 @@ with gr.Blocks(
                         # invisible checkbox that tracks tab status
                         local_model_enabled = gr.Checkbox(value=False, visible=False)
                         with gr.TabItem('上传') as local_model_tab_upload:
+                            _last_upload_model = _get_webui_config_key("last_upload_model", None)
+                            _last_upload_config = _get_webui_config_key("last_upload_config", None)
                             with gr.Row():
-                                model_path = gr.File(label="选择模型文件")
-                                config_path = gr.File(label="选择配置文件")
+                                model_path = gr.File(label="选择模型文件",
+                                                     value=_last_upload_model if _last_upload_model and os.path.exists(_last_upload_model) else None)
+                                config_path = gr.File(label="选择配置文件",
+                                                      value=_last_upload_config if _last_upload_config and os.path.exists(_last_upload_config) else None)
                         with gr.TabItem('本地') as local_model_tab_local:
                             gr.Markdown(f'模型应当放置于{local_model_root}文件夹下')
                             local_model_refresh_btn = gr.Button('刷新本地模型列表')
@@ -311,10 +324,16 @@ with gr.Blocks(
                             _last_model = _get_webui_config_key("last_local_model", None)
                             _last_model_val = _last_model if _last_model in _local_models else None
                             local_model_selection = gr.Dropdown(label='选择模型文件夹', choices=_local_models, value=_last_model_val, interactive=True)
+                    _last_diff_model = _get_webui_config_key("last_diff_model", None)
+                    _last_diff_config = _get_webui_config_key("last_diff_config", None)
+                    _last_cluster = _get_webui_config_key("last_cluster_model", None)
                     with gr.Row():
-                        diff_model_path = gr.File(label="选择扩散模型文件")
-                        diff_config_path = gr.File(label="选择扩散模型配置文件")
-                    cluster_model_path = gr.File(label="选择聚类模型或特征检索文件（没有可以不选）")
+                        diff_model_path = gr.File(label="选择扩散模型文件",
+                                                   value=_last_diff_model if _last_diff_model and os.path.exists(_last_diff_model) else None)
+                        diff_config_path = gr.File(label="选择扩散模型配置文件",
+                                                    value=_last_diff_config if _last_diff_config and os.path.exists(_last_diff_config) else None)
+                    cluster_model_path = gr.File(label="选择聚类模型或特征检索文件（没有可以不选）",
+                                                  value=_last_cluster if _last_cluster and os.path.exists(_last_cluster) else None)
                     device = gr.Dropdown(label="推理设备，默认为自动选择CPU和GPU", choices=["Auto",*cuda.keys(),"cpu"], value="Auto")
                     enhance = gr.Checkbox(label="是否使用NSF_HIFIGAN增强,该选项对部分训练集少的模型有一定的音质增强效果，但是对训练好的模型有反面效果，默认关闭", value=False)
                     only_diffusion = gr.Checkbox(label="是否使用全扩散推理，开启后将不使用So-VITS模型，仅使用扩散模型进行完整扩散推理，默认关闭", value=False)
