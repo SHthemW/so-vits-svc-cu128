@@ -23,18 +23,23 @@ python webUI.py
 - All file I/O enforces `encoding='utf-8'` — fixes garbled text (mojibake) on Windows (GBK locale).
 - `train.py` reading `config.json` now handles GBK-encoded files gracefully.
 - `filelists` are always written as UTF-8, preventing training crashes caused by CJK filenames.
-- Gradio upgraded from 3.36 to 4.44 for Windows compatibility.
+- Gradio upgraded from 3.36 to 4.44.1 for Windows compatibility.
 
 ### Python Version
 
 - **Python 3.9 ~ 3.10** required.
 - Tested with **Python 3.9.8** — confirmed working.
-- Python 3.8 is not supported (PyTorch 2.6 dropped it). Python 3.11+ is not supported (blocked by `fairseq==0.12.2`).
+- Python 3.8 is not supported (PyTorch 2.7 dropped it). Python 3.11+ is not supported (blocked by `fairseq==0.12.2`).
+
+### pip & Dependency Compilation
+
+- **pip version must be 24.0** — newer versions have compatibility issues resolving some legacy dependencies and will fail to install.
+- Some dependencies no longer provide pre-built wheel distributions. **cmake** is required to build them from source. Make sure cmake is installed and available in your PATH.
 
 ### PyTorch Compatibility
 
-- Tested with **CUDA 12.8** and PyTorch 2.6.
-- Fixed `UnpicklingError` when loading clustering models under PyTorch 2.6 (removed `weights_only=True`).
+- Tested with **CUDA 12.8** and PyTorch 2.7.0.dev20250309+cu128.
+- Fixed `UnpicklingError` when loading clustering models under PyTorch 2.6+ (removed `weights_only=True`).
 - Clustering training uses `MiniBatchKMeans` to avoid memory exhaustion on large datasets.
 - KMeans parameters auto-adapt based on dataset size and available system memory.
 - Feature index building memory footprint reduced to prevent OOM crashes.

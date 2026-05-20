@@ -23,18 +23,23 @@ python webUI.py
 - 全部文件读写强制指定 `encoding='utf-8'`，修复 Windows 中文环境下出现乱码的问题。
 - `train.py` 读取 `config.json` 时兼容 GBK 编码文件。
 - `filelists` 始终以 UTF-8 写入，避免中文文件名导致训练中断。
-- Gradio 从 3.36 升级到 4.44，改善 Windows 兼容性。
+- Gradio 从 3.36 升级到 4.44.1，改善 Windows 兼容性。
 
 ### Python 版本
 
 - 需要 **Python 3.9 ~ 3.10**。
 - 实测 **Python 3.9.8** 可正常运行。
-- Python 3.8 不受支持（PyTorch 2.6 已不再支持）。Python 3.11+ 不受支持（`fairseq==0.12.2` 不兼容）。
+- Python 3.8 不受支持（PyTorch 2.7 已不再支持）。Python 3.11+ 不受支持（`fairseq==0.12.2` 不兼容）。
+
+### pip 与依赖编译
+
+- **pip 版本必须为 24.0**，不能使用更高版本（高版本 pip 在解析部分旧依赖时会出现兼容性问题，导致安装失败）。
+- 部分依赖已不再提供预编译 wheel 分发，安装时需要 **cmake** 从源码自行编译。请确保系统已安装 cmake 并加入 PATH。
 
 ### PyTorch 兼容性
 
-- 测试环境为 **CUDA 12.8** + PyTorch 2.6。
-- 修复 PyTorch 2.6 下加载聚类模型时的 `UnpicklingError`。
+- 测试环境为 **CUDA 12.8** + PyTorch 2.7.0.dev20250309+cu128。
+- 修复 PyTorch 2.6+ 下加载聚类模型时的 `UnpicklingError`。
 - 聚类训练改用 `MiniBatchKMeans`，避免大数据集时内存耗尽或卡死。
 - KMeans 参数根据数据集大小和可用内存自动适配。
 - 降低特征索引构建的内存占用，避免 OOM 崩溃。
