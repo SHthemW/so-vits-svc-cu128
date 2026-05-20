@@ -35,6 +35,7 @@ python webUI.py
 
 - **pip version must be 24.0** — newer versions have compatibility issues resolving some legacy dependencies and will fail to install.
 - Some dependencies no longer provide pre-built wheel distributions. **cmake** is required to build them from source. Make sure cmake is installed and available in your PATH.
+- If you just want to run the project, a pre-built environment package is available: [Download](https://pan.quark.cn/s/28b5ef9da0c4)
 
 ### PyTorch Compatibility
 
