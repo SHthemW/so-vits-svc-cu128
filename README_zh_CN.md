@@ -2,6 +2,8 @@
 
 本项目是 [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)（SoftVC VITS 歌声转换）的 fork，在原版基础上增加了 **Gradio WebUI**，支持可视化训练、推理和模型管理。目标环境为 **CUDA 12.8**，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
 
+完整更新历史见 [CHANGELOG_zh_CN.md](CHANGELOG_zh_CN.md)。
+
 ## 与原版的主要区别
 
 ### GUI 界面

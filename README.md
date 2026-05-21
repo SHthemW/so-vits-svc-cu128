@@ -2,6 +2,8 @@
 
 This is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc) (SoftVC VITS Singing Voice Conversion), featuring a **Gradio WebUI** for training, inference, and model management. It targets **CUDA 12.8** and includes fixes for newer PyTorch versions on Windows.
 
+See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
+
 ## Differences from Upstream
 
 ### GUI
