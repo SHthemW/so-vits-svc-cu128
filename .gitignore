@@ -175,3 +175,4 @@ get-pip.py
 build_exe/
 so-vits-svc.exe
 so-vits-svc-cmd.exe
+so-vits-svc-tensorboard.exe
