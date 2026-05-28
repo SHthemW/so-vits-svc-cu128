@@ -211,8 +211,15 @@ def vc_fn(sid, input_audio, output_format, vc_transform, auto_f0,cluster_ratio, 
         #print(audio.dtype)
         if len(audio.shape) > 1:
             audio = librosa.to_mono(audio.transpose(1, 0))
-        # 未知原因Gradio上传的filepath会有一个奇怪的固定后缀，这里去掉
-        truncated_basename = Path(input_audio).stem[:-6]
+        # 从Gradio上传的临时文件路径中提取basename（去掉可能存在的随机后缀）
+        raw_stem = Path(input_audio).stem
+        # 旧版Gradio会在文件名末尾追加6位随机串，新版不再追加。仅当stem足够长时才尝试截断
+        if len(raw_stem) > 10:
+            truncated_basename = raw_stem[:-6]
+        else:
+            truncated_basename = raw_stem
+        if not truncated_basename:
+            truncated_basename = "audio"
         processed_audio = os.path.join("raw", f"{truncated_basename}.wav")
         os.makedirs("raw", exist_ok=True)
         soundfile.write(processed_audio, audio, sampling_rate, format="wav")
