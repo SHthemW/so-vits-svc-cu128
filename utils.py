@@ -370,7 +370,7 @@ def check_git_hash(model_dir):
 
   path = os.path.join(model_dir, "githash")
   if os.path.exists(path):
-    saved_hash = open(path).read()
+    saved_hash = open(path, 'r', encoding='utf-8').read()
     if saved_hash != cur_hash:
       logger.warn("git hash values are different. {}(saved) != {}(current)".format(
         saved_hash[:8], cur_hash[:8]))
