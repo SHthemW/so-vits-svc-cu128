@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+from launcher_update import auto_update_from_gitee
 
 if getattr(sys, 'frozen', False):
     script_dir = os.path.dirname(os.path.abspath(sys.executable))
@@ -8,6 +9,7 @@ else:
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
 venv_dir = os.path.join(script_dir, "python_env")
+auto_update_from_gitee(script_dir, venv_dir)
 pyvenv_config = os.path.join(venv_dir, "pyvenv.cfg")
 python_home = os.path.join(venv_dir, "Python")
 python_exe = os.path.join(python_home, "python.exe")
