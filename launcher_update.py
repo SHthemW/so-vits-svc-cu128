@@ -3,9 +3,14 @@ import shutil
 import subprocess
 
 
-def _run_git(git_exe, repo_dir, args, env):
+def _run_git(git_exe, repo_dir, args, env, config_args=None):
+    command = [git_exe]
+    if config_args:
+        command.extend(config_args)
+    command.extend(["-C", repo_dir, *args])
+
     return subprocess.run(
-        [git_exe, "-C", repo_dir, *args],
+        command,
         capture_output=True,
         encoding="utf-8",
         errors="replace",
@@ -21,7 +26,18 @@ def _print_output(result):
         print(result.stderr.strip())
 
 
-def _git_environment(git_dir):
+def _find_ca_bundle(git_dir):
+    candidates = [
+        os.path.join(git_dir, "mingw64", "etc", "ssl", "certs", "ca-bundle.crt"),
+        os.path.join(git_dir, "usr", "ssl", "certs", "ca-bundle.crt"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _git_environment(git_dir, ca_bundle):
     env = os.environ.copy()
     paths = [
         os.path.join(git_dir, "cmd"),
@@ -30,7 +46,26 @@ def _git_environment(git_dir):
         os.path.join(git_dir, "mingw64", "bin"),
     ]
     env["PATH"] = os.pathsep.join(paths + [env.get("PATH", "")])
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env.pop("GIT_CONFIG_SYSTEM", None)
+    if ca_bundle:
+        env["GIT_SSL_CAINFO"] = ca_bundle
+        env["SSL_CERT_FILE"] = ca_bundle
+    else:
+        env.pop("GIT_SSL_CAINFO", None)
+        env.pop("SSL_CERT_FILE", None)
     return env
+
+
+def _git_tls_config(ca_bundle):
+    if ca_bundle:
+        return [
+            "-c",
+            "http.sslBackend=openssl",
+            "-c",
+            f"http.sslCAInfo={ca_bundle}",
+        ]
+    return ["-c", "http.sslBackend=schannel"]
 
 
 def _find_git_exe(venv_dir):
@@ -58,10 +93,14 @@ def auto_update_from_gitee(repo_dir, venv_dir):
         print("[自动更新] 已跳过：未在 python_env\\Git 或 PATH 中找到 Git。")
         return
 
-    env = _git_environment(git_dir)
+    ca_bundle = _find_ca_bundle(git_dir)
+    env = _git_environment(git_dir, ca_bundle)
+    config_args = _git_tls_config(ca_bundle)
     print(f"[自动更新] Git: {git_exe}")
+    if ca_bundle:
+        print(f"[自动更新] Git 证书: {ca_bundle}")
 
-    remote = _run_git(git_exe, repo_dir, ["remote", "get-url", "gitee"], env)
+    remote = _run_git(git_exe, repo_dir, ["remote", "get-url", "gitee"], env, config_args)
     if remote.returncode != 0:
         print("[自动更新] 已跳过：未配置名为 'gitee' 的远程仓库。")
         _print_output(remote)
@@ -69,7 +108,7 @@ def auto_update_from_gitee(repo_dir, venv_dir):
 
     print(f"[自动更新] 远程仓库: {remote.stdout.strip()}")
 
-    branch = _run_git(git_exe, repo_dir, ["rev-parse", "--abbrev-ref", "HEAD"], env)
+    branch = _run_git(git_exe, repo_dir, ["rev-parse", "--abbrev-ref", "HEAD"], env, config_args)
     if branch.returncode != 0:
         print("[自动更新] 获取当前分支失败。")
         _print_output(branch)
@@ -85,7 +124,7 @@ def auto_update_from_gitee(repo_dir, venv_dir):
         print("[自动更新] 当前分支: detached HEAD")
 
     print("[自动更新] 正在执行 git pull...")
-    pull = _run_git(git_exe, repo_dir, pull_args, env)
+    pull = _run_git(git_exe, repo_dir, pull_args, env, config_args)
     _print_output(pull)
 
     if pull.returncode == 0:
