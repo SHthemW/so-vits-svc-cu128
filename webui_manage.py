@@ -3,10 +3,8 @@ import json
 import os
 import pickle
 import shutil
-import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog
 
 import gradio as gr
 
@@ -162,17 +160,6 @@ def delete_diff_checkpoint(selection: str):
         os.remove(f)
         return f"✓ 已删除: {name}", gr.Dropdown(choices=scan_diff_checkpoints(), value=None)
     return "文件不存在", gr.Dropdown(choices=scan_diff_checkpoints())
-
-
-# ── Export ────────────────────────────────────────────────────────────────────
-
-def browse_export_dir():
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    folder = filedialog.askdirectory(title="选择导出目录")
-    root.destroy()
-    return folder if folder else ""
 
 
 def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str, export_dir: str):
@@ -394,11 +381,9 @@ def build_management_tab():
                                           interactive=True, scale=2)
             export_feat_dd = gr.Dropdown(label="特征检索/聚类模型 (可选)", choices=scan_feature_models(),
                                           interactive=True, scale=2)
-        with gr.Row():
-            export_dir_input = gr.Textbox(label="导出目录",
-                                          placeholder="例如: D:\\my_models",
-                                          interactive=True, scale=4)
-            export_browse = gr.Button("浏览...", scale=1)
+        export_dir_input = gr.Textbox(label="导出目录",
+                                      placeholder="例如: /workspace/so-vits-svc-cu128/trained 或 /mnt/d/my_models",
+                                      interactive=True)
         export_btn = gr.Button("导出", variant="primary")
         export_output = gr.Textbox(label="导出结果", interactive=False, lines=5)
 
@@ -425,7 +410,6 @@ def build_management_tab():
     feat_refresh.click(lambda: gr.Dropdown(choices=scan_feature_models()), [], [feat_dd])
     feat_del_btn.click(delete_feature_model, [feat_dd], [feat_status, feat_dd])
 
-    export_browse.click(browse_export_dir, [], [export_dir_input])
     export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd, export_dir_input], [export_output])
 
     exported_dd.change(get_exported_info, [exported_dd], [exported_info])
