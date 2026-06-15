@@ -54,13 +54,29 @@ def _get_webui_config_key(key: str, default=None):
 
 
 AUDIO_EXTENSIONS = {".wav"}
+INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
 
 
-def _safe_speaker_name(name: str) -> str:
-    name = (name or "").strip()
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
-    name = name.strip(" .")
-    return name or "uploaded"
+def _filename_error(name: str, label: str) -> str | None:
+    if not name:
+        return f"{label}不能为空。"
+    if not name.isascii():
+        return f"{label}只能使用 ASCII 字符。"
+    if any(ord(ch) < 32 or ch in INVALID_FILENAME_CHARS for ch in name):
+        return f"{label}不能包含控制字符或这些字符: <>:\"/\\|?*"
+    if name in {".", ".."}:
+        return f"{label}不能是 . 或 ..。"
+    if name != name.strip(" ."):
+        return f"{label}不能以空格或点开头/结尾。"
+    return None
+
+
+def _validate_speaker_name(name: str) -> tuple[str | None, str | None]:
+    speaker = (name or "").strip()
+    error = _filename_error(speaker, "数据集名称")
+    if error:
+        return None, error
+    return speaker, None
 
 
 def _uploaded_path(file) -> Path:
@@ -70,11 +86,6 @@ def _uploaded_path(file) -> Path:
 def _uploaded_name(file, path: Path) -> str:
     name = getattr(file, "orig_name", None) or getattr(file, "name", None) or path.name
     return Path(str(name)).name
-
-
-def _uploaded_parts(file, src: Path) -> tuple[str, ...]:
-    raw_name = getattr(file, "orig_name", None) or src.name
-    return Path(str(raw_name)).parts or (src.name,)
 
 
 def describe_dataset() -> str:
@@ -119,79 +130,67 @@ def describe_dataset() -> str:
 """
 
 
-def _dataset_upload_error(message: str) -> tuple[str, str]:
+def _dataset_upload_error(message: str):
     return str(ROOT / "dataset_raw"), f"""
 <div style="padding:14px;border:1px solid #f0b8b8;border-radius:8px;background:#fff7f7">
   <div style="font-weight:700;color:#a40000;margin-bottom:6px">上传失败</div>
   <div>{message}</div>
 </div>
 {describe_dataset()}
-"""
+""", gr.update(), gr.update()
 
 
-def upload_dataset_files(files):
+def upload_dataset_files(files, speaker_name, progress=gr.Progress()):
+    progress(0, desc="准备上传")
+
     if not files:
-        return _dataset_upload_error("请选择一个直接包含 .wav 文件的文件夹。")
+        return _dataset_upload_error("请选择一个或多个 .wav 文件。")
+
+    speaker, error = _validate_speaker_name(speaker_name)
+    if error:
+        return _dataset_upload_error(error)
 
     if not isinstance(files, list):
         files = [files]
 
     wav_items = []
-    non_wav = 0
-    folder_names = set()
-    nested = False
-    root_level_wav = False
+    total = len(files)
 
-    for file in files:
+    for index, file in enumerate(files, start=1):
+        progress((index - 1) / max(total * 2, 1), desc=f"校验文件 {index}/{total}")
         src = _uploaded_path(file)
-        parts = _uploaded_parts(file, src)
+        name = _uploaded_name(file, src)
         if src.suffix.lower() != ".wav":
-            non_wav += 1
-            continue
-        if len(parts) < 2:
-            root_level_wav = True
-            continue
-        if len(parts) != 2:
-            nested = True
-            continue
-        folder_names.add(parts[0])
-        wav_items.append((file, src, parts))
+            return _dataset_upload_error(f"{name} 不是 .wav 文件。这里只允许上传 wav 文件。")
+        error = _filename_error(name, f"WAV 文件名 {name}")
+        if error:
+            return _dataset_upload_error(error)
+        wav_items.append((src, name))
 
-    if root_level_wav:
-        return _dataset_upload_error("不支持直接上传散装 wav 文件。请把 wav 放进一个文件夹后上传该文件夹。")
-    if nested:
-        return _dataset_upload_error("上传的文件夹内不能再包含子文件夹；只允许一层结构: 文件夹/*.wav。")
-    if len(folder_names) > 1:
-        return _dataset_upload_error("一次只能上传一个说话人的文件夹。")
     if not wav_items:
-        detail = "所选文件夹里没有 .wav 文件。"
-        if non_wav:
-            detail += f" 检测到 {non_wav} 个非 wav 文件，已拒绝。"
-        return _dataset_upload_error(detail)
-    if non_wav:
-        return _dataset_upload_error(f"所选文件夹包含 {non_wav} 个非 wav 文件。请只上传直接包含 .wav 的文件夹。")
+        return _dataset_upload_error("请选择一个或多个 .wav 文件。")
 
     dataset_root = ROOT / "dataset_raw"
     copied = 0
-    speaker = _safe_speaker_name(next(iter(folder_names)))
-    for file, src, parts in wav_items:
-        name = parts[-1]
-        target_dir = dataset_root / speaker
-        target_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = dataset_root / speaker
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for index, (src, name) in enumerate(wav_items, start=1):
+        progress((total + index - 1) / max(total * 2, 1), desc=f"复制文件 {index}/{len(wav_items)}")
         dst = target_dir / name
         if dst.exists():
             stem = dst.stem
             ext = dst.suffix
-            index = 1
+            duplicate_index = 1
             while True:
-                candidate = target_dir / f"{stem}_{index}{ext}"
+                candidate = target_dir / f"{stem}_{duplicate_index}{ext}"
                 if not candidate.exists():
                     dst = candidate
                     break
-                index += 1
+                duplicate_index += 1
         shutil.copy2(src, dst)
         copied += 1
 
+    progress(1, desc="上传完成")
     dataset_dir = str(dataset_root)
     _save_dataset_dir(dataset_dir)
     return dataset_dir, f"""
@@ -200,7 +199,7 @@ def upload_dataset_files(files):
   <div>已导入 {copied} 个 WAV 文件到 dataset_raw/{speaker}/。</div>
 </div>
 {describe_dataset()}
-"""
+""", None, ""
 _procs: dict = {
     "download": None,
     "resample": None,
@@ -924,17 +923,27 @@ def build_training_tab():
     gr.HTML("""
 <div style="padding:12px 14px;border:1px solid #f0c36d;border-radius:8px;background:#fff8e5;margin-bottom:10px">
   <div style="font-weight:700;color:#8a5200;margin-bottom:4px">数据集上传要求</div>
-  <div>只允许上传一个直接包含 <code>.wav</code> 文件的文件夹，例如 <code>Ya/*.wav</code>。不要上传散装文件、多层目录或包含 mp3/flac 的混合文件夹。</div>
+  <div>只允许上传 <code>.wav</code> 文件。下方填写的数据集名称会作为 <code>dataset_raw/</code> 下的新文件夹名；数据集名称和 wav 文件名都只能使用 ASCII 字符。</div>
 </div>
 """)
     dataset_status = gr.HTML(value=describe_dataset())
     upload_dataset = gr.File(
-        label="上传",
-        file_count="directory",
+        label="上传 WAV 文件",
+        file_count="multiple",
+        file_types=[".wav"],
         type="filepath",
     )
+    upload_dataset_name = gr.Textbox(
+        label="数据集名称",
+        placeholder="例如 Ya",
+        max_lines=1,
+    )
     upload_dataset_btn = gr.Button("上传到 dataset_raw", variant="primary")
-    upload_dataset_btn.click(upload_dataset_files, [upload_dataset], [dataset_dir, dataset_status])
+    upload_dataset_btn.click(
+        upload_dataset_files,
+        [upload_dataset, upload_dataset_name],
+        [dataset_dir, dataset_status, upload_dataset, upload_dataset_name],
+    )
 
     # ── Step 0: Environment check & download ─────────────────────────
     with gr.Accordion("前置步骤：环境检查与模型下载", open=True):
