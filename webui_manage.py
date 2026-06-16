@@ -9,11 +9,27 @@ from pathlib import Path
 import gradio as gr
 
 ROOT = Path(__file__).parent
+DATASET_RAW_DIR = ROOT / "dataset_raw"
+DATASET_44K_DIR = ROOT / "dataset" / "44k"
+FILELIST_TRAIN = ROOT / "filelists" / "train.txt"
+FILELIST_VAL = ROOT / "filelists" / "val.txt"
 LOGS_DIR = ROOT / "logs" / "44k"
 DIFF_DIR = LOGS_DIR / "diffusion"
 TRAINED_DIR = ROOT / "trained"
 CONFIG_PATH = ROOT / "configs" / "config.json"
 DIFF_CONFIG_PATH = ROOT / "configs" / "diffusion.yaml"
+FEATURE_INDEX_PATH = LOGS_DIR / "feature_and_index.pkl"
+CLUSTER_MODEL_GLOB = "kmeans_*.pt"
+RAW_WAV_SUFFIX = ".wav"
+DATASET_CACHE_SUFFIXES = [
+    (".soft.pt", "内容特征"),
+    (".f0.npy", "F0"),
+    (".spec.pt", "谱图"),
+    (".vol.npy", "音量"),
+    (".mel.npy", "mel"),
+    (".aug_mel.npy", "增广mel"),
+    (".aug_vol.npy", "增广音量"),
+]
 
 
 def _fmt_size(size_bytes: int) -> str:
@@ -74,6 +90,175 @@ def scan_diff_checkpoints() -> list[str]:
 
 def _parse_selection(label: str) -> str:
     return label.split("|")[0].strip() if label else ""
+
+
+def scan_datasets() -> list[str]:
+    if not DATASET_RAW_DIR.exists():
+        return []
+    return [d.name for d in sorted(DATASET_RAW_DIR.iterdir()) if d.is_dir()]
+
+
+def _count_wavs(folder: Path) -> int:
+    if not folder.exists():
+        return 0
+    return sum(1 for p in folder.iterdir() if p.is_file() and p.suffix.lower() == RAW_WAV_SUFFIX)
+
+
+def _load_filelist_counts(path: Path) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not path.exists():
+        return counts
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            item = line.strip().replace("\\", "/")
+            if not item:
+                continue
+            parts = item.lstrip("./").split("/")
+            if len(parts) >= 4 and parts[0] == "dataset" and parts[1] == "44k":
+                speaker = parts[2]
+                counts[speaker] = counts.get(speaker, 0) + 1
+    return counts
+
+
+def _speaker_cache_counts(speaker: str) -> dict[str, tuple[int, int]]:
+    raw_dir = DATASET_RAW_DIR / speaker
+    resampled_dir = DATASET_44K_DIR / speaker
+    raw_total = _count_wavs(raw_dir)
+    resampled_total = _count_wavs(resampled_dir)
+
+    counts = {
+        "原始 WAV": (raw_total, raw_total),
+        "重采样 WAV": (resampled_total, raw_total or resampled_total),
+    }
+    wav_bases = [p.stem for p in resampled_dir.glob("*.wav")] if resampled_dir.exists() else []
+    for suffix, label in DATASET_CACHE_SUFFIXES:
+        hit = sum(1 for stem in wav_bases if (resampled_dir / f"{stem}{suffix}").exists())
+        counts[label] = (hit, resampled_total)
+    return counts
+
+
+def _ratio_text(done: int, total: int) -> str:
+    if total <= 0:
+        return "0/0"
+    return f"{done}/{total}"
+
+
+def _safe_delete_path(path: Path):
+    if path.is_dir():
+        shutil.rmtree(str(path), ignore_errors=True)
+    elif path.exists():
+        path.unlink()
+
+
+def _remove_filelist_speaker(path: Path, speaker: str):
+    if not path.exists():
+        return
+    kept = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            item = line.strip()
+            if not item:
+                continue
+            parts = item.replace("\\", "/").lstrip("./").split("/")
+            if len(parts) >= 3 and parts[0] == "dataset" and parts[1] == "44k" and parts[2] == speaker:
+                continue
+            kept.append(item)
+    with open(path, "w", encoding="utf-8") as f:
+        if kept:
+            f.write("\n".join(kept) + "\n")
+        else:
+            f.write("")
+
+
+def _cleanup_dataset_artifacts(speaker: str):
+    _safe_delete_path(DATASET_RAW_DIR / speaker)
+    _safe_delete_path(DATASET_44K_DIR / speaker)
+    _remove_filelist_speaker(FILELIST_TRAIN, speaker)
+    _remove_filelist_speaker(FILELIST_VAL, speaker)
+
+    if DATASET_44K_DIR.exists() and not any(DATASET_44K_DIR.iterdir()):
+        DATASET_44K_DIR.rmdir()
+    if DATASET_RAW_DIR.exists() and not any(DATASET_RAW_DIR.iterdir()):
+        DATASET_RAW_DIR.rmdir()
+
+
+def describe_datasets() -> str:
+    if not DATASET_RAW_DIR.exists():
+        return """
+<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa;margin-bottom:12px">
+  <div style="font-weight:700;margin-bottom:6px">数据集管理</div>
+  <div>dataset_raw/ 不存在。</div>
+</div>
+"""
+
+    speakers = [d.name for d in sorted(DATASET_RAW_DIR.iterdir()) if d.is_dir()]
+    train_counts = _load_filelist_counts(FILELIST_TRAIN)
+    val_counts = _load_filelist_counts(FILELIST_VAL)
+
+    if not speakers:
+        return """
+<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
+  <div style="font-weight:700;margin-bottom:6px">数据集管理</div>
+  <div>dataset_raw/ 存在，但没有可管理的数据集目录。</div>
+</div>
+"""
+
+    cards = []
+    for speaker in speakers:
+        counts = _speaker_cache_counts(speaker)
+        raw_done, raw_total = counts["原始 WAV"]
+        res_done, res_total = counts["重采样 WAV"]
+        train_ref = train_counts.get(speaker, 0)
+        val_ref = val_counts.get(speaker, 0)
+        cache_html = "".join(
+            f"<div style='display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-top:1px solid #edf0f4'>"
+            f"<span>{label}</span><span style='font-variant-numeric:tabular-nums'>{_ratio_text(done, total)}</span></div>"
+            for label, (done, total) in counts.items()
+        )
+        cards.append(f"""
+<details style="padding:12px 14px;border:1px solid #dadde3;border-radius:8px;background:#fff;margin-bottom:10px">
+  <summary style="cursor:pointer;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:center">
+    <span style="font-weight:700">{speaker}</span>
+    <span style="color:#5b6472;font-size:13px">raw {raw_done} | 44k {res_done} | train {train_ref} | val {val_ref}</span>
+  </summary>
+  <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">原始 WAV: <b>{_ratio_text(raw_done, raw_total)}</b></div>
+    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">重采样 WAV: <b>{_ratio_text(res_done, res_total)}</b></div>
+    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">train 引用: <b>{train_ref}</b></div>
+    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">val 引用: <b>{val_ref}</b></div>
+  </div>
+  <div style="margin-top:10px">
+    <div style="font-weight:700;margin-bottom:6px">预处理缓存</div>
+    {cache_html}
+  </div>
+</details>
+""")
+
+    global_html = f"""
+<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa;margin-bottom:12px">
+  <div style="font-weight:700;margin-bottom:6px">数据集管理</div>
+  <div style="font-weight:700;margin-bottom:6px">全局预处理文件</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+    <div>filelists/train.txt: <b>{'存在' if FILELIST_TRAIN.exists() else '不存在'}</b></div>
+    <div>filelists/val.txt: <b>{'存在' if FILELIST_VAL.exists() else '不存在'}</b></div>
+    <div>configs/config.json: <b>{'存在' if CONFIG_PATH.exists() else '不存在'}</b></div>
+    <div>configs/diffusion.yaml: <b>{'存在' if DIFF_CONFIG_PATH.exists() else '不存在'}</b></div>
+  </div>
+</div>
+"""
+
+    return global_html + "".join(cards)
+
+
+def delete_dataset(selection: str):
+    speaker = (selection or "").strip()
+    if not speaker:
+        return "请先选择一个数据集", gr.update(choices=scan_datasets())
+    if not DATASET_RAW_DIR.exists() or not (DATASET_RAW_DIR / speaker).exists():
+        return "数据集不存在", gr.update(choices=scan_datasets())
+
+    _cleanup_dataset_artifacts(speaker)
+    return f"✓ 已删除数据集及缓存: {speaker}", gr.update(choices=scan_datasets(), value=None)
 
 
 FEATURE_PATTERNS = ["feature_and_index.pkl", "kmeans_*.pt"]
@@ -339,6 +524,16 @@ def build_management_tab():
     gr.Markdown("## 模型管理\n"
                 "管理训练检查点和已导出的模型。")
 
+    with gr.Accordion("数据集管理 (dataset_raw/ 与预处理缓存)", open=True):
+        gr.Markdown("查看每个数据集的原始 WAV、重采样结果以及预处理阶段生成的缓存文件。")
+        with gr.Row():
+            dataset_dd = gr.Dropdown(label="选择数据集", choices=scan_datasets(), interactive=True, scale=3)
+            dataset_refresh = gr.Button("刷新", variant="primary", scale=1)
+        with gr.Row():
+            dataset_delete_btn = gr.Button("删除选中数据集及缓存", variant="stop")
+        dataset_status = gr.Textbox(label="操作结果", interactive=False)
+        dataset_overview = gr.HTML(value=describe_datasets())
+
     with gr.Accordion("训练检查点 (logs/44k/)", open=True):
         gr.Markdown("**主模型检查点**")
         with gr.Row():
@@ -410,6 +605,14 @@ def build_management_tab():
     feat_refresh.click(lambda: gr.Dropdown(choices=scan_feature_models()), [], [feat_dd])
     feat_del_btn.click(delete_feature_model, [feat_dd], [feat_status, feat_dd])
 
+    dataset_refresh.click(
+        lambda: (gr.update(choices=scan_datasets()), describe_datasets()),
+        [],
+        [dataset_dd, dataset_overview],
+    )
+    dataset_delete_btn.click(delete_dataset, [dataset_dd], [dataset_status, dataset_dd]).then(
+        describe_datasets, [], [dataset_overview]
+    )
     export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd, export_dir_input], [export_output])
 
     exported_dd.change(get_exported_info, [exported_dd], [exported_info])
