@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 from launcher_update import auto_update_from_gitee
+from startup_banner import emit_startup_banner
 
 if getattr(sys, 'frozen', False):
     script_dir = os.path.dirname(os.path.abspath(sys.executable))
@@ -25,12 +26,7 @@ with open(pyvenv_config, "w") as f:
     f.write("include-system-site-packages = false\n")
     f.write("version = 3.9.8\n")
 
-print()
-print("# So-Vits-SVC 4.1 with Cuda 12.8")
-print()
-print("- Intergrated by SHW / SHthemW@Github")
-print("- So-Vits-SVC 为开源软件, 本整合包亦完全免费, 请勿用于商用.")
-print()
+emit_startup_banner()
 
 activate_bat = os.path.join(venv_dir, "Scripts", "activate.bat")
 print("虚拟环境已成功激活.")

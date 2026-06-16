@@ -73,7 +73,9 @@ start_webui() {
 
 start_cmd() {
     [ -f "$ACTIVATE" ] || die "cannot find Python environment activation script: $ACTIVATE"
+    require_python_env
     cd "$ROOT_DIR"
+    "$PYTHON" -c 'from startup_banner import emit_startup_banner; emit_startup_banner("# Command Line")'
     # shellcheck disable=SC1090
     source "$ACTIVATE"
     echo "So-VITS-SVC environment activated."
@@ -84,6 +86,7 @@ start_cmd() {
 start_tensorboard() {
     require_python_env
     cd "$ROOT_DIR"
+    "$PYTHON" -c 'from startup_banner import emit_startup_banner; emit_startup_banner("# TensorBoard")'
     echo "Starting TensorBoard for $ROOT_DIR/logs/44k ..."
     exec "$PYTHON" -m tensorboard.main --logdir "$ROOT_DIR/logs/44k"
 }

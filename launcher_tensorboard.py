@@ -3,6 +3,7 @@ import sys
 import subprocess
 import webbrowser
 import time
+from startup_banner import emit_startup_banner
 
 if getattr(sys, 'frozen', False):
     script_dir = os.path.dirname(os.path.abspath(sys.executable))
@@ -26,9 +27,7 @@ with open(pyvenv_config, "w") as f:
     f.write("version = 3.9.8\n")
 
 logdir = os.path.join(script_dir, "logs", "44k")
-print()
-print("# So-Vits-SVC 4.1 - TensorBoard")
-print()
+emit_startup_banner("# TensorBoard")
 print(f"Log directory: {logdir}")
 print("TensorBoard 正在启动, 请稍候...")
 print()

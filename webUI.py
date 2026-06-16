@@ -23,6 +23,7 @@ from inference.infer_tool import Svc
 from utils import mix_model
 from webui_manage import build_management_tab
 from webui_train import build_training_tab, _get_webui_config_key, _save_webui_config_key
+from startup_banner import emit_startup_banner
 
 logging.getLogger('numba').setLevel(logging.WARNING)
 logging.getLogger('markdown_it').setLevel(logging.WARNING)
@@ -585,6 +586,7 @@ with gr.Blocks(
         model_unload_button.click(modelUnload,[],[sid,sid_output])
     app.queue(default_concurrency_limit=8)
     os.system("start http://127.0.0.1:7860")
+    emit_startup_banner("# WebUI")
     app.launch()
 
 
