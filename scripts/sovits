@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="$ROOT_DIR/python_env/bin/python"
+ACTIVATE="$ROOT_DIR/python_env/bin/activate"
+
+usage() {
+    cat <<EOF
+Usage:
+  sovits start webui [--local]
+  sovits start cmd
+  sovits start tensorboard
+
+Commands:
+  webui        Start WebUI. Public Gradio share is enabled by default.
+  webui --local
+               Start WebUI without public Gradio share.
+  cmd          Open a shell with the bundled Python environment activated.
+  tensorboard  Start TensorBoard for logs/44k.
+EOF
+}
+
+die() {
+    echo "sovits: $*" >&2
+    exit 1
+}
+
+require_python_env() {
+    [ -x "$PYTHON" ] || die "cannot find executable Python: $PYTHON"
+}
+
+start_webui() {
+    local share="true"
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --local)
+                share="false"
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                die "unknown webui option: $1"
+                ;;
+        esac
+        shift
+    done
+
+    require_python_env
+    cd "$ROOT_DIR"
+
+    if [ "$share" = "true" ]; then
+        echo "Starting So-VITS-SVC WebUI with public Gradio share enabled..."
+        export GRADIO_SHARE=True
+    else
+        echo "Starting So-VITS-SVC WebUI in local mode..."
+        unset GRADIO_SHARE
+    fi
+
+    exec "$PYTHON" "$ROOT_DIR/webUI.py"
+}
+
+start_cmd() {
+    [ -f "$ACTIVATE" ] || die "cannot find Python environment activation script: $ACTIVATE"
+    cd "$ROOT_DIR"
+    # shellcheck disable=SC1090
+    source "$ACTIVATE"
+    echo "So-VITS-SVC environment activated."
+    echo "Project directory: $ROOT_DIR"
+    exec "${SHELL:-/bin/bash}" -i
+}
+
+start_tensorboard() {
+    require_python_env
+    cd "$ROOT_DIR"
+    echo "Starting TensorBoard for $ROOT_DIR/logs/44k ..."
+    exec "$PYTHON" -m tensorboard.main --logdir "$ROOT_DIR/logs/44k"
+}
+
+if [ "$#" -lt 1 ]; then
+    usage
+    exit 1
+fi
+
+command="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+shift
+
+case "$command" in
+    start)
+        [ "$#" -ge 1 ] || die "missing target after 'start'"
+        target="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+        shift
+        case "$target" in
+            webui)
+                start_webui "$@"
+                ;;
+            cmd)
+                [ "$#" -eq 0 ] || die "cmd does not accept extra arguments"
+                start_cmd
+                ;;
+            tensorboard)
+                [ "$#" -eq 0 ] || die "tensorboard does not accept extra arguments"
+                start_tensorboard
+                ;;
+            -h|--help|help)
+                usage
+                ;;
+            *)
+                die "unknown start target: $target"
+                ;;
+        esac
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        die "unknown command: $command"
+        ;;
+esac
