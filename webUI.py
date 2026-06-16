@@ -140,6 +140,15 @@ SVC_UI_CSS = """
     font-variant-numeric: tabular-nums;
 }
 
+.svc-note {
+    display: grid;
+    gap: 8px;
+}
+
+.svc-note-line {
+    line-height: 1.55;
+}
+
 .svc-alert .svc-title,
 .svc-card .svc-title {
     color: var(--body-text-color, #1f2328);

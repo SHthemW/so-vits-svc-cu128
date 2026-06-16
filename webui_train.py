@@ -921,6 +921,15 @@ def build_training_tab():
 
     dataset_dir = gr.Textbox(value=str(ROOT / "dataset_raw"), visible=False)
     gr.HTML("""
+<div class="svc-card">
+  <div class="svc-title">音频上传规范变更</div>
+  <div class="svc-note">
+    <div class="svc-note-line">基于大家的反馈，现在整合包采用了全新的音频上传规范，以防止文件夹混淆。</div>
+    <div class="svc-note-line">Master 版本：需要先在电脑里手动建好 <code>dataset_raw/说话人名称/音频.wav</code> 这样的文件夹，再让 WebUI 使用这个文件夹。</div>
+    <div class="svc-note-line">当前整合包：直接在这里选择 WAV 文件，并在下方填写数据集名称。WebUI 会自动创建 <code>dataset_raw/数据集名称/</code>，再把上传的音频放进去。</div>
+    <div class="svc-note-line">简单来说，Master 版本适合已经熟悉文件夹整理的用户；当前整合包只需要上传文件和填写名称，更不容易把多个数据集放错位置。</div>
+  </div>
+</div>
 <div class="svc-alert svc-alert--warning">
   <div class="svc-title">数据集上传要求</div>
   <div>只允许上传 <code>.wav</code> 文件。下方填写的数据集名称会作为 <code>dataset_raw/</code> 下的新文件夹名；数据集名称和 wav 文件名都只能使用 ASCII 字符。</div>
