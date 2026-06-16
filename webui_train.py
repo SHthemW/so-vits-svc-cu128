@@ -9,6 +9,7 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Optional, Tuple
 
 import gradio as gr
 import torch
@@ -57,7 +58,7 @@ AUDIO_EXTENSIONS = {".wav"}
 INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
 
 
-def _filename_error(name: str, label: str) -> str | None:
+def _filename_error(name: str, label: str) -> Optional[str]:
     if not name:
         return f"{label}不能为空。"
     if not name.isascii():
@@ -71,7 +72,7 @@ def _filename_error(name: str, label: str) -> str | None:
     return None
 
 
-def _validate_speaker_name(name: str) -> tuple[str | None, str | None]:
+def _validate_speaker_name(name: str) -> Tuple[Optional[str], Optional[str]]:
     speaker = (name or "").strip()
     error = _filename_error(speaker, "数据集名称")
     if error:
