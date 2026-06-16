@@ -7,10 +7,18 @@ import subprocess
 import sys
 import time
 import traceback
+import warnings
+import webbrowser
 from itertools import chain
 from pathlib import Path
 
 # os.system("wget -P cvec/ https://huggingface.co/spaces/innnky/nanami/resolve/main/checkpoint_best_legacy_500.pt")
+warnings.filterwarnings(
+    "ignore",
+    message="The pynvml package is deprecated.*",
+    category=FutureWarning,
+)
+
 import gradio as gr
 import librosa
 import numpy as np
@@ -585,7 +593,7 @@ with gr.Blocks(
         model_load_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection],[sid,sid_output])
         model_unload_button.click(modelUnload,[],[sid,sid_output])
     app.queue(default_concurrency_limit=8)
-    os.system("start http://127.0.0.1:7860")
+    webbrowser.open("http://127.0.0.1:7860")
     emit_startup_banner("# WebUI")
     app.launch()
 
