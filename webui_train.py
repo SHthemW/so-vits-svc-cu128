@@ -92,8 +92,8 @@ def describe_dataset() -> str:
     dataset_root = ROOT / "dataset_raw"
     if not dataset_root.exists():
         return """
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="font-weight:700;margin-bottom:6px">当前数据集</div>
+<div class="svc-card">
+  <div class="svc-title">当前数据集</div>
   <div>dataset_raw/ 不存在。上传数据集后会自动创建。</div>
 </div>
 """
@@ -101,8 +101,8 @@ def describe_dataset() -> str:
     speakers = [d for d in sorted(dataset_root.iterdir()) if d.is_dir()]
     if not speakers:
         return """
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="font-weight:700;margin-bottom:6px">当前数据集</div>
+<div class="svc-card">
+  <div class="svc-title">当前数据集</div>
   <div>dataset_raw/ 存在，但还没有说话人子目录。</div>
 </div>
 """
@@ -113,27 +113,27 @@ def describe_dataset() -> str:
         count = sum(1 for p in speaker.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS)
         total += count
         rows.append(
-            "<div style='display:flex;justify-content:space-between;gap:16px;padding:6px 0;border-top:1px solid #edf0f4'>"
-            f"<span>{speaker.name}</span><span style='font-variant-numeric:tabular-nums'>{count} WAV</span>"
+            "<div class='svc-data-row'>"
+            f"<span>{speaker.name}</span><span class='svc-num'>{count} WAV</span>"
             "</div>"
         )
     body = "".join(rows)
     return f"""
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:8px">
-    <div style="font-weight:700">当前数据集</div>
-    <div style="color:#5b6472;font-size:13px">dataset_raw/</div>
+<div class="svc-card">
+  <div class="svc-heading-row">
+    <div class="svc-title">当前数据集</div>
+    <div class="svc-muted">dataset_raw/</div>
   </div>
   {body}
-  <div style="margin-top:10px;color:#303846;font-weight:600">合计: {len(speakers)} 个说话人，{total} 个 WAV 文件</div>
+  <div class="svc-total">合计: {len(speakers)} 个说话人，{total} 个 WAV 文件</div>
 </div>
 """
 
 
 def _dataset_upload_error(message: str):
     return str(ROOT / "dataset_raw"), f"""
-<div style="padding:14px;border:1px solid #f0b8b8;border-radius:8px;background:#fff7f7">
-  <div style="font-weight:700;color:#a40000;margin-bottom:6px">上传失败</div>
+<div class="svc-alert svc-alert--error">
+  <div class="svc-title">上传失败</div>
   <div>{message}</div>
 </div>
 {describe_dataset()}
@@ -194,8 +194,8 @@ def upload_dataset_files(files, speaker_name, progress=gr.Progress()):
     dataset_dir = str(dataset_root)
     _save_dataset_dir(dataset_dir)
     return dataset_dir, f"""
-<div style="padding:14px;border:1px solid #b8dec4;border-radius:8px;background:#f6fff8;margin-bottom:12px">
-  <div style="font-weight:700;color:#176b2c;margin-bottom:6px">上传完成</div>
+<div class="svc-alert svc-alert--success">
+  <div class="svc-title">上传完成</div>
   <div>已导入 {copied} 个 WAV 文件到 dataset_raw/{speaker}/。</div>
 </div>
 {describe_dataset()}
@@ -921,8 +921,8 @@ def build_training_tab():
 
     dataset_dir = gr.Textbox(value=str(ROOT / "dataset_raw"), visible=False)
     gr.HTML("""
-<div style="padding:12px 14px;border:1px solid #f0c36d;border-radius:8px;background:#fff8e5;margin-bottom:10px">
-  <div style="font-weight:700;color:#8a5200;margin-bottom:4px">数据集上传要求</div>
+<div class="svc-alert svc-alert--warning">
+  <div class="svc-title">数据集上传要求</div>
   <div>只允许上传 <code>.wav</code> 文件。下方填写的数据集名称会作为 <code>dataset_raw/</code> 下的新文件夹名；数据集名称和 wav 文件名都只能使用 ASCII 字符。</div>
 </div>
 """)

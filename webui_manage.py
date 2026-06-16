@@ -185,8 +185,8 @@ def _cleanup_dataset_artifacts(speaker: str):
 def describe_datasets() -> str:
     if not DATASET_RAW_DIR.exists():
         return """
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa;margin-bottom:12px">
-  <div style="font-weight:700;margin-bottom:6px">数据集管理</div>
+<div class="svc-card">
+  <div class="svc-title">数据集管理</div>
   <div>dataset_raw/ 不存在。</div>
 </div>
 """
@@ -197,8 +197,8 @@ def describe_datasets() -> str:
 
     if not speakers:
         return """
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="font-weight:700;margin-bottom:6px">数据集管理</div>
+<div class="svc-card">
+  <div class="svc-title">数据集管理</div>
   <div>dataset_raw/ 存在，但没有可管理的数据集目录。</div>
 </div>
 """
@@ -211,34 +211,34 @@ def describe_datasets() -> str:
         train_ref = train_counts.get(speaker, 0)
         val_ref = val_counts.get(speaker, 0)
         cache_html = "".join(
-            f"<div style='display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-top:1px solid #edf0f4'>"
-            f"<span>{label}</span><span style='font-variant-numeric:tabular-nums'>{_ratio_text(done, total)}</span></div>"
+            f"<div class='svc-data-row'>"
+            f"<span>{label}</span><span class='svc-num'>{_ratio_text(done, total)}</span></div>"
             for label, (done, total) in counts.items()
         )
         cards.append(f"""
-<details style="padding:12px 14px;border:1px solid #dadde3;border-radius:8px;background:#fff;margin-bottom:10px">
-  <summary style="cursor:pointer;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:center">
-    <span style="font-weight:700">{speaker}</span>
-    <span style="color:#5b6472;font-size:13px">raw {raw_done} | 44k {res_done} | train {train_ref} | val {val_ref}</span>
+<details class="svc-card">
+  <summary class="svc-summary">
+    <span class="svc-title">{speaker}</span>
+    <span class="svc-muted">raw {raw_done} | 44k {res_done} | train {train_ref} | val {val_ref}</span>
   </summary>
-  <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
-    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">原始 WAV: <b>{_ratio_text(raw_done, raw_total)}</b></div>
-    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">重采样 WAV: <b>{_ratio_text(res_done, res_total)}</b></div>
-    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">train 引用: <b>{train_ref}</b></div>
-    <div style="padding:8px 10px;border:1px solid #edf0f4;border-radius:8px;background:#fafafa">val 引用: <b>{val_ref}</b></div>
+  <div class="svc-stat-grid">
+    <div class="svc-stat">原始 WAV: <b>{_ratio_text(raw_done, raw_total)}</b></div>
+    <div class="svc-stat">重采样 WAV: <b>{_ratio_text(res_done, res_total)}</b></div>
+    <div class="svc-stat">train 引用: <b>{train_ref}</b></div>
+    <div class="svc-stat">val 引用: <b>{val_ref}</b></div>
   </div>
-  <div style="margin-top:10px">
-    <div style="font-weight:700;margin-bottom:6px">预处理缓存</div>
+  <div class="svc-cache">
+    <div class="svc-title">预处理缓存</div>
     {cache_html}
   </div>
 </details>
 """)
 
     global_html = f"""
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa;margin-bottom:12px">
-  <div style="font-weight:700;margin-bottom:6px">数据集管理</div>
-  <div style="font-weight:700;margin-bottom:6px">全局预处理文件</div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+<div class="svc-card">
+  <div class="svc-title">数据集管理</div>
+  <div class="svc-title">全局预处理文件</div>
+  <div class="svc-file-grid">
     <div>filelists/train.txt: <b>{'存在' if FILELIST_TRAIN.exists() else '不存在'}</b></div>
     <div>filelists/val.txt: <b>{'存在' if FILELIST_VAL.exists() else '不存在'}</b></div>
     <div>configs/config.json: <b>{'存在' if CONFIG_PATH.exists() else '不存在'}</b></div>

@@ -42,6 +42,119 @@ if torch.cuda.is_available():
         device_name = torch.cuda.get_device_properties(i).name
         cuda[f"CUDA:{i} {device_name}"] = f"cuda:{i}"
 
+
+SVC_UI_CSS = """
+.svc-card,
+.svc-alert {
+    box-sizing: border-box;
+    padding: 14px;
+    border: 1px solid var(--border-color-primary, #d0d7de);
+    border-radius: 8px;
+    background: var(--block-background-fill, #ffffff);
+    color: var(--body-text-color, #1f2328);
+    margin-bottom: 12px;
+}
+
+.svc-alert {
+    border-left-width: 4px;
+}
+
+.svc-alert--warning {
+    border-left-color: #d89614;
+    background: color-mix(in srgb, #d89614 10%, var(--block-background-fill, #ffffff));
+}
+
+.svc-alert--error {
+    border-left-color: #cf222e;
+    background: color-mix(in srgb, #cf222e 10%, var(--block-background-fill, #ffffff));
+}
+
+.svc-alert--success {
+    border-left-color: #2da44e;
+    background: color-mix(in srgb, #2da44e 10%, var(--block-background-fill, #ffffff));
+}
+
+.svc-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.svc-heading-row,
+.svc-data-row,
+.svc-summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+}
+
+.svc-heading-row {
+    margin-bottom: 8px;
+}
+
+.svc-data-row {
+    padding: 6px 0;
+    border-top: 1px solid var(--border-color-primary, #d0d7de);
+}
+
+.svc-summary {
+    cursor: pointer;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.svc-muted {
+    color: var(--body-text-color-subdued, #57606a);
+    font-size: 13px;
+}
+
+.svc-total {
+    margin-top: 10px;
+    color: var(--body-text-color, #1f2328);
+    font-weight: 600;
+}
+
+.svc-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.svc-file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+}
+
+.svc-stat {
+    padding: 6px 0;
+    border-top: 1px solid var(--border-color-primary, #d0d7de);
+}
+
+.svc-cache {
+    margin-top: 10px;
+}
+
+.svc-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.svc-alert .svc-title,
+.svc-card .svc-title {
+    color: var(--body-text-color, #1f2328);
+}
+
+.svc-alert code,
+.svc-card code {
+    color: var(--body-text-color, #1f2328);
+    background: var(--input-background-fill, #f6f8fa);
+    border: 1px solid var(--border-color-primary, #d0d7de);
+    border-radius: 4px;
+    padding: 0 4px;
+}
+"""
+
 def upload_mix_append_file(files,sfiles):
     try:
         if(sfiles is None):
@@ -299,6 +412,7 @@ with gr.Blocks(
         font=["Source Sans Pro", "Arial", "sans-serif"],
         font_mono=['JetBrains mono', "Consolas", 'Courier New']
     ),
+    css=SVC_UI_CSS,
 ) as app:
     with gr.Tabs():
         with gr.TabItem("训练"):
