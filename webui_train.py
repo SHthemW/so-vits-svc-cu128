@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -911,10 +910,6 @@ def _poll_all():
     return result
 
 
-def _poll_tick():
-    return time.time()
-
-
 def build_training_tab():
     gr.Markdown("## So-VITS-SVC 训练流程\n"
                 "按顺序完成以下各步骤。\n\n"
@@ -1132,8 +1127,8 @@ def build_training_tab():
         cluster_clear_btn.click(clear_cluster_log, [], [cluster_log])
 
     # ── Single timer for all status/log polling ─────────────────────
-    _timer = gr.Number(value=_poll_tick, every=5, visible=False)
-    _timer.change(
+    _timer = gr.Timer(value=5)
+    _timer.tick(
         _poll_all, [],
         [
             dl_status, dl_log,
