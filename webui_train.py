@@ -54,6 +54,13 @@ def _get_webui_config_key(key: str, default=None):
     return _load_webui_config().get(key, default)
 
 
+def _public_gradio_share_enabled() -> bool:
+    value = os.environ.get("GRADIO_SHARE")
+    if value is None:
+        return True
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 AUDIO_EXTENSIONS = {".wav"}
 INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
 
@@ -1465,8 +1472,25 @@ def build_training_tab():
         cluster_stop_btn.click(stop_cluster, [], [cluster_status], queue=False)
         cluster_clear_btn.click(clear_cluster_log, [], [cluster_log], queue=False)
 
-    # ── Single timer for all status/log polling ─────────────────────
-    _timer = gr.Timer(value=5)
+    poll_refresh_btn = gr.Button("刷新全部训练状态")
+    poll_refresh_btn.click(
+        _poll_all, [],
+        [
+            dl_status, dl_log,
+            resample_status, resample_log,
+            flist_status, flist_log,
+            hubert_status, hubert_log,
+            train_status, train_log,
+            diff_status, diff_log,
+            index_status, index_log,
+            cluster_status, cluster_log,
+        ],
+        queue=False,
+    )
+
+    # Public Gradio .live tunnels can occasionally return HTML error pages for
+    # background API calls. Keep auto-polling local and use manual refresh there.
+    _timer = gr.Timer(value=5, active=not _public_gradio_share_enabled())
     _timer.tick(
         _poll_all, [],
         [

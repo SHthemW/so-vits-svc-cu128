@@ -199,6 +199,78 @@ SVC_UI_CSS = """
 }
 """
 
+SVC_UI_JS = r"""
+() => {
+  const originalFetch = window.fetch.bind(window);
+  const gradioApiPath = /\/(run|queue\/join|queue\/data)(\/|\?|$)/;
+
+  function requestUrl(input) {
+    if (typeof input === "string") return input;
+    if (input && typeof input.url === "string") return input.url;
+    return "";
+  }
+
+  function requestMethod(input, init) {
+    return (init && init.method) || (input && input.method) || "GET";
+  }
+
+  function shouldWrap(input, init) {
+    return requestMethod(input, init).toUpperCase() === "POST" && gradioApiPath.test(requestUrl(input));
+  }
+
+  function cloneInit(init) {
+    if (!init || !init.signal) return init;
+    return { ...init, signal: undefined };
+  }
+
+  async function fetchWithRetry(input, init) {
+    let lastResponse = null;
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await originalFetch(input, attempt === 0 ? init : cloneInit(init));
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.toLowerCase().includes("application/json")) {
+          return response;
+        }
+        lastResponse = response.clone();
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+    }
+
+    if (lastResponse) {
+      const text = await lastResponse.text().catch(() => "");
+      const preview = text.replace(/\s+/g, " ").trim().slice(0, 240);
+      return new Response(
+        JSON.stringify({
+          error: "公网 .live 返回了非 JSON 响应，请重试或使用本地地址。"
+            + (preview ? " 响应摘要: " + preview : "")
+        }),
+        {
+          status: lastResponse.ok ? 502 : lastResponse.status || 502,
+          statusText: lastResponse.statusText || "Bad Gateway",
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        error: "公网 .live 请求失败，请重试或使用本地地址。"
+          + (lastError ? " " + lastError.message : "")
+      }),
+      { status: 502, statusText: "Bad Gateway", headers: { "content-type": "application/json" } }
+    );
+  }
+
+  window.fetch = (input, init) => shouldWrap(input, init)
+    ? fetchWithRetry(input, init)
+    : originalFetch(input, init);
+}
+"""
+
 def upload_mix_append_file(files,sfiles):
     try:
         if(sfiles is None):
@@ -458,6 +530,7 @@ with gr.Blocks(
     ),
     analytics_enabled=False,
     css=SVC_UI_CSS,
+    js=SVC_UI_JS,
 ) as app:
     with gr.Tabs():
         with gr.TabItem("训练"):
@@ -585,8 +658,8 @@ with gr.Blocks(
                     mix_model_output2 = gr.Textbox(
                                             label="Output Message"
                                          )
-                    mix_model_path.change(updata_mix_info,[mix_model_path],[mix_model_output1])
-                    mix_model_upload_button.upload(upload_mix_append_file, [mix_model_upload_button,mix_model_path], [mix_model_path,mix_model_output1])
+                    mix_model_path.change(updata_mix_info,[mix_model_path],[mix_model_output1], queue=False, show_api=False)
+                    mix_model_upload_button.upload(upload_mix_append_file, [mix_model_upload_button,mix_model_path], [mix_model_path,mix_model_output1], queue=False, show_api=False)
                     mix_submit.click(mix_submit_click, [mix_model_output1,mix_mode], [mix_model_output2])
                 
                 with gr.TabItem("模型压缩工具"):
@@ -608,17 +681,17 @@ with gr.Blocks(
                     """)
                 debug_button = gr.Checkbox(label="Debug模式，如果向社区反馈BUG需要打开，打开后控制台可以显示具体错误提示", value=debug)
         # refresh local model list
-        local_model_refresh_btn.click(local_model_refresh_fn, outputs=local_model_selection)
+        local_model_refresh_btn.click(local_model_refresh_fn, outputs=local_model_selection, queue=False, show_api=False)
         # set local enabled/disabled on tab switch
-        local_model_tab_upload.select(lambda: False, outputs=local_model_enabled)
-        local_model_tab_local.select(lambda: True, outputs=local_model_enabled)
+        local_model_tab_upload.select(lambda: False, outputs=local_model_enabled, queue=False, show_api=False)
+        local_model_tab_local.select(lambda: True, outputs=local_model_enabled, queue=False, show_api=False)
         
         vc_submit.click(vc_fn, [sid, vc_input3, output_format, vc_transform,auto_f0,cluster_ratio, slice_db, noise_scale,pad_seconds,cl_num,lg_num,lgr_num,f0_predictor,enhancer_adaptive_key,cr_threshold,k_step,use_spk_mix,second_encoding,loudness_envelope_adjustment], [vc_output1, vc_output2])
         vc_submit2.click(vc_fn2, [text2tts, tts_lang, tts_gender, tts_rate, tts_volume, sid, output_format, vc_transform,auto_f0,cluster_ratio, slice_db, noise_scale,pad_seconds,cl_num,lg_num,lgr_num,f0_predictor,enhancer_adaptive_key,cr_threshold,k_step,use_spk_mix,second_encoding,loudness_envelope_adjustment], [vc_output1, vc_output2])
 
-        debug_button.change(debug_change,[],[])
-        model_load_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection],[sid,sid_output])
-        model_unload_button.click(modelUnload,[],[sid,sid_output])
+        debug_button.change(debug_change,[],[], queue=False, show_api=False)
+        model_load_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection],[sid,sid_output], show_api=False)
+        model_unload_button.click(modelUnload,[],[sid,sid_output], queue=False, show_api=False)
     app.queue(default_concurrency_limit=8)
     webbrowser.open("http://127.0.0.1:7860")
     emit_startup_banner("# WebUI")
