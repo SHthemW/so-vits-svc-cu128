@@ -59,13 +59,14 @@ start_webui() {
 
     require_python_env
     cd "$ROOT_DIR"
+    export GRADIO_ANALYTICS_ENABLED=False
 
     if [ "$share" = "true" ]; then
         echo "Starting So-VITS-SVC WebUI with public Gradio share enabled..."
         export GRADIO_SHARE=True
     else
         echo "Starting So-VITS-SVC WebUI in local mode..."
-        unset GRADIO_SHARE
+        export GRADIO_SHARE=False
     fi
 
     exec "$PYTHON" "$ROOT_DIR/webUI.py"

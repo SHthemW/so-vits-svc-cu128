@@ -13,6 +13,7 @@ from itertools import chain
 from pathlib import Path
 
 # os.system("wget -P cvec/ https://huggingface.co/spaces/innnky/nanami/resolve/main/checkpoint_best_legacy_500.pt")
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 warnings.filterwarnings(
     "ignore",
     message="The pynvml package is deprecated.*",
@@ -20,6 +21,7 @@ warnings.filterwarnings(
 )
 
 import gradio as gr
+import gradio.routes
 import librosa
 import numpy as np
 import soundfile
@@ -30,7 +32,7 @@ from edgetts.tts_voices import SUPPORTED_LANGUAGES
 from inference.infer_tool import Svc
 from utils import mix_model
 from webui_manage import build_management_tab
-from webui_train import build_training_tab, _get_webui_config_key, _save_webui_config_key
+from webui_train import build_training_tab, register_dataset_transfer_routes, _get_webui_config_key, _save_webui_config_key
 from startup_banner import emit_startup_banner
 
 logging.getLogger('numba').setLevel(logging.WARNING)
@@ -50,6 +52,30 @@ if torch.cuda.is_available():
     for i in range(torch.cuda.device_count()):
         device_name = torch.cuda.get_device_properties(i).name
         cuda[f"CUDA:{i} {device_name}"] = f"cuda:{i}"
+
+
+def _install_dataset_transfer_routes():
+    original_create_app = gradio.routes.App.create_app
+    if getattr(original_create_app, "_svc_dataset_transfer_patched", False):
+        return
+
+    def create_app_with_dataset_transfer(*args, **kwargs):
+        fastapi_app = original_create_app(*args, **kwargs)
+        register_dataset_transfer_routes(fastapi_app)
+        return fastapi_app
+
+    create_app_with_dataset_transfer._svc_dataset_transfer_patched = True
+    gradio.routes.App.create_app = staticmethod(create_app_with_dataset_transfer)
+
+
+_install_dataset_transfer_routes()
+
+
+def _gradio_share_enabled() -> bool:
+    value = os.environ.get("GRADIO_SHARE")
+    if value is None:
+        return True
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 SVC_UI_CSS = """
@@ -430,6 +456,7 @@ with gr.Blocks(
         font=["Source Sans Pro", "Arial", "sans-serif"],
         font_mono=['JetBrains mono', "Consolas", 'Courier New']
     ),
+    analytics_enabled=False,
     css=SVC_UI_CSS,
 ) as app:
     with gr.Tabs():
@@ -595,7 +622,10 @@ with gr.Blocks(
     app.queue(default_concurrency_limit=8)
     webbrowser.open("http://127.0.0.1:7860")
     emit_startup_banner("# WebUI")
-    app.launch()
+    app.launch(
+        share=_gradio_share_enabled(),
+        max_file_size=os.environ.get("SVC_MAX_FILE_SIZE", "20gb"),
+    )
 
 
  
