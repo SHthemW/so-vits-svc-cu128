@@ -28,6 +28,17 @@ f0_min = 50.0
 f0_mel_min = 1127 * np.log(1 + f0_min / 700)
 f0_mel_max = 1127 * np.log(1 + f0_max / 700)
 
+
+def _figure_to_rgb_array(fig):
+    fig.canvas.draw()
+    if hasattr(fig.canvas, "tostring_rgb"):
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        return data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    data = np.asarray(fig.canvas.buffer_rgba())
+    return np.ascontiguousarray(data[:, :, :3])
+
+
 def normalize_f0(f0, x_mask, uv, random_scale=True):
     # calculate means based on x_mask
     uv_sum = torch.sum(uv, dim=1, keepdim=True)
@@ -59,9 +70,7 @@ def plot_data_to_numpy(x, y):
     plt.plot(y)
     plt.tight_layout()
 
-    fig.canvas.draw()
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    data = _figure_to_rgb_array(fig)
     plt.close()
     return data
 
@@ -262,9 +271,7 @@ def plot_spectrogram_to_numpy(spectrogram):
   plt.ylabel("Channels")
   plt.tight_layout()
 
-  fig.canvas.draw()
-  data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-  data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+  data = _figure_to_rgb_array(fig)
   plt.close()
   return data
 
@@ -291,9 +298,7 @@ def plot_alignment_to_numpy(alignment, info=None):
   plt.ylabel('Encoder timestep')
   plt.tight_layout()
 
-  fig.canvas.draw()
-  data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-  data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+  data = _figure_to_rgb_array(fig)
   plt.close()
   return data
 
