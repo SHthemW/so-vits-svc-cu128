@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -57,7 +58,7 @@ def _get_webui_config_key(key: str, default=None):
 def _public_gradio_share_enabled() -> bool:
     value = os.environ.get("GRADIO_SHARE")
     if value is None:
-        return True
+        return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -827,6 +828,8 @@ def _launch(key: str, args: list, clear_log: bool = True) -> str:
         bufsize=1,
         cwd=str(ROOT),
         env=env,
+        start_new_session=(os.name != "nt"),
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     with _lock:
         _procs[key] = proc
@@ -877,17 +880,27 @@ def _stop(key: str) -> str:
     if proc is None or proc.poll() is not None:
         return f"[{key}] 没有正在运行的进程"
     pid = proc.pid
-    try:
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            capture_output=True, timeout=10
-        )
-    except Exception:
-        proc.kill()
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=10
+            )
+        except Exception:
+            proc.kill()
+    else:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except Exception:
+            proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        pass
+        if os.name != "nt":
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except Exception:
+                proc.kill()
     return f"[{key}] 已停止"
 
 
@@ -1296,6 +1309,12 @@ def build_training_tab():
     )
     dataset_refresh_btn.click(describe_dataset, [], [dataset_status], queue=False)
 
+    _refresh_events = []
+
+    def _bind_refresh(event):
+        _refresh_events.append(event)
+        return event
+
     # ── Step 0: Environment check & download ─────────────────────────
     with gr.Accordion("前置步骤：环境检查与模型下载", open=True):
         gr.Markdown("检查 CUDA 环境、训练数据目录、预训练模型是否就绪。缺失的模型可一键从 HuggingFace 下载。")
@@ -1316,8 +1335,8 @@ def build_training_tab():
         dl_log = gr.Textbox(label="下载日志", value=get_download_log, lines=10, max_lines=20, interactive=False)
         dl_clear_btn = gr.Button("清除日志", size="sm")
 
-        dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status], queue=False)
-        dl_stop_btn.click(stop_download, [], [dl_status], queue=False)
+        _bind_refresh(dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status], queue=False))
+        _bind_refresh(dl_stop_btn.click(stop_download, [], [dl_status], queue=False))
         dl_clear_btn.click(clear_download_log, [], [dl_log], queue=False)
 
     # ── Step 1: Resample ─────────────────────────────────────────────
@@ -1342,8 +1361,8 @@ def build_training_tab():
         resample_log = gr.Textbox(label="日志", value=get_resample_log, lines=8, max_lines=15, interactive=False)
         resample_clear_btn = gr.Button("清除日志", size="sm")
 
-        resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status], queue=False)
-        resample_stop_btn.click(stop_resample, [], [resample_status], queue=False)
+        _bind_refresh(resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status], queue=False))
+        _bind_refresh(resample_stop_btn.click(stop_resample, [], [resample_status], queue=False))
         resample_clear_btn.click(clear_resample_log, [], [resample_log], queue=False)
 
     # ── Step 2: flist + config ───────────────────────────────────────
@@ -1367,8 +1386,8 @@ def build_training_tab():
         flist_log = gr.Textbox(label="日志", value=get_flist_log, lines=8, max_lines=15, interactive=False)
         flist_clear_btn = gr.Button("清除日志", size="sm")
 
-        flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status], queue=False)
-        flist_stop_btn.click(stop_flist, [], [flist_status], queue=False)
+        _bind_refresh(flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status], queue=False))
+        _bind_refresh(flist_stop_btn.click(stop_flist, [], [flist_status], queue=False))
         flist_clear_btn.click(clear_flist_log, [], [flist_log], queue=False)
 
     # ── Step 3: Hubert + F0 ──────────────────────────────────────────
@@ -1391,8 +1410,8 @@ def build_training_tab():
         hubert_log = gr.Textbox(label="日志", value=get_hubert_log, lines=8, max_lines=15, interactive=False)
         hubert_clear_btn = gr.Button("清除日志", size="sm")
 
-        hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status], queue=False)
-        hubert_stop_btn.click(stop_hubert, [], [hubert_status], queue=False)
+        _bind_refresh(hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status], queue=False))
+        _bind_refresh(hubert_stop_btn.click(stop_hubert, [], [hubert_status], queue=False))
         hubert_clear_btn.click(clear_hubert_log, [], [hubert_log], queue=False)
 
     # ── Training config editor ───────────────────────────────────────
@@ -1423,8 +1442,8 @@ def build_training_tab():
         train_log = gr.Textbox(label="训练日志", value=get_train_log, lines=15, max_lines=30, interactive=False)
         train_clear_btn = gr.Button("清除日志", size="sm")
 
-        train_start_btn.click(start_train, [], [train_status], queue=False)
-        train_stop_btn.click(stop_train, [], [train_status], queue=False)
+        _bind_refresh(train_start_btn.click(start_train, [], [train_status], queue=False))
+        _bind_refresh(train_stop_btn.click(stop_train, [], [train_status], queue=False))
         train_clear_btn.click(clear_train_log, [], [train_log], queue=False)
 
     # ── Step 5: Diffusion training ───────────────────────────────────
@@ -1438,8 +1457,8 @@ def build_training_tab():
         diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, lines=12, max_lines=25, interactive=False)
         diff_clear_btn = gr.Button("清除日志", size="sm")
 
-        diff_start_btn.click(start_train_diff, [], [diff_status], queue=False)
-        diff_stop_btn.click(stop_train_diff, [], [diff_status], queue=False)
+        _bind_refresh(diff_start_btn.click(start_train_diff, [], [diff_status], queue=False))
+        _bind_refresh(diff_stop_btn.click(stop_train_diff, [], [diff_status], queue=False))
         diff_clear_btn.click(clear_train_diff_log, [], [diff_log], queue=False)
 
     # ── Step 6: Index ────────────────────────────────────────────────
@@ -1453,8 +1472,8 @@ def build_training_tab():
         index_log = gr.Textbox(label="日志", value=get_index_log, lines=8, max_lines=15, interactive=False)
         index_clear_btn = gr.Button("清除日志", size="sm")
 
-        index_start_btn.click(start_index, [], [index_status], queue=False)
-        index_stop_btn.click(stop_index, [], [index_status], queue=False)
+        _bind_refresh(index_start_btn.click(start_index, [], [index_status], queue=False))
+        _bind_refresh(index_stop_btn.click(stop_index, [], [index_status], queue=False))
         index_clear_btn.click(clear_index_log, [], [index_log], queue=False)
 
     # ── Step 7: Cluster ─────────────────────────────────────────────
@@ -1468,40 +1487,37 @@ def build_training_tab():
         cluster_log = gr.Textbox(label="日志", value=get_cluster_log, lines=8, max_lines=15, interactive=False)
         cluster_clear_btn = gr.Button("清除日志", size="sm")
 
-        cluster_start_btn.click(start_cluster, [], [cluster_status], queue=False)
-        cluster_stop_btn.click(stop_cluster, [], [cluster_status], queue=False)
+        _bind_refresh(cluster_start_btn.click(start_cluster, [], [cluster_status], queue=False))
+        _bind_refresh(cluster_stop_btn.click(stop_cluster, [], [cluster_status], queue=False))
         cluster_clear_btn.click(clear_cluster_log, [], [cluster_log], queue=False)
+
+    poll_outputs = [
+        dl_status, dl_log,
+        resample_status, resample_log,
+        flist_status, flist_log,
+        hubert_status, hubert_log,
+        train_status, train_log,
+        diff_status, diff_log,
+        index_status, index_log,
+        cluster_status, cluster_log,
+    ]
+
+    for event in _refresh_events:
+        event.then(_poll_all, [], poll_outputs, queue=False)
 
     poll_refresh_btn = gr.Button("刷新全部训练状态")
     poll_refresh_btn.click(
         _poll_all, [],
-        [
-            dl_status, dl_log,
-            resample_status, resample_log,
-            flist_status, flist_log,
-            hubert_status, hubert_log,
-            train_status, train_log,
-            diff_status, diff_log,
-            index_status, index_log,
-            cluster_status, cluster_log,
-        ],
+        poll_outputs,
         queue=False,
     )
 
-    # Public Gradio .live tunnels can occasionally return HTML error pages for
-    # background API calls. Keep auto-polling local and use manual refresh there.
-    _timer = gr.Timer(value=5, active=not _public_gradio_share_enabled())
+    # Keep training status/log polling active for both local and public links.
+    # webUI.py wraps Gradio API fetches with retries to handle occasional
+    # non-JSON responses from public .live tunnels.
+    _timer = gr.Timer(value=5, active=True)
     _timer.tick(
         _poll_all, [],
-        [
-            dl_status, dl_log,
-            resample_status, resample_log,
-            flist_status, flist_log,
-            hubert_status, hubert_log,
-            train_status, train_log,
-            diff_status, diff_log,
-            index_status, index_log,
-            cluster_status, cluster_log,
-        ],
+        poll_outputs,
         queue=False,
     )
