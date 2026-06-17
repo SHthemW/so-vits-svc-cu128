@@ -395,7 +395,8 @@ def _dataset_transfer_page() -> str:
     </section>
   </main>
   <script>
-    const chunkSize = 8 * 1024 * 1024;
+    const chunkSize = 4 * 1024 * 1024;
+    const requestTimeoutMs = 120000;
     const startBtn = document.getElementById("start");
     const filesInput = document.getElementById("files");
     const speakerInput = document.getElementById("speaker");
@@ -412,25 +413,53 @@ def _dataset_transfer_page() -> str:
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
+    function compactServerText(text) {
+      return text.replace(/\s+/g, " ").trim().slice(0, 300);
+    }
+
+    async function readJsonResponse(response) {
+      const contentType = response.headers.get("content-type") || "";
+      const text = await response.text();
+      if (!contentType.toLowerCase().includes("application/json")) {
+        const preview = compactServerText(text);
+        throw new Error(
+          `服务器返回了非 JSON 响应 (${response.status} ${response.statusText})` +
+          (preview ? `: ${preview}` : "")
+        );
+      }
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        throw new Error(`服务器 JSON 响应解析失败: ${error.message}`);
+      }
+    }
+
     async function uploadChunk(params, blob) {
       const query = new URLSearchParams(params);
       let lastError = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
         try {
           const response = await fetch("/svc-dataset-transfer/chunk?" + query.toString(), {
             method: "POST",
             headers: { "Content-Type": "application/octet-stream" },
             body: blob,
+            signal: controller.signal,
           });
+          const data = await readJsonResponse(response);
           if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data.detail || response.statusText);
+            throw new Error(data.detail || `${response.status} ${response.statusText}`);
           }
-          return await response.json();
+          return data;
         } catch (error) {
-          lastError = error;
-          log(`分片上传失败，重试 ${attempt}/4: ${error.message}`);
+          lastError = error.name === "AbortError"
+            ? new Error("请求超时，公网连接可能不稳定")
+            : error;
+          log(`分片上传失败，重试 ${attempt}/4: ${lastError.message}`);
           await sleep(800 * attempt);
+        } finally {
+          clearTimeout(timeout);
         }
       }
       throw lastError;
