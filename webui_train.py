@@ -12,11 +12,18 @@ import zipfile
 from pathlib import Path
 from typing import Optional, Tuple
 
+_ROOT_DIR = Path(__file__).resolve().parent
+_TMP_DIR = _ROOT_DIR / ".cache" / "tmp"
+_TMP_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["TMPDIR"] = str(_TMP_DIR)
+os.environ["TEMP"] = str(_TMP_DIR)
+os.environ["TMP"] = str(_TMP_DIR)
+
 import gradio as gr
 import torch
 
 PYTHON = sys.executable
-ROOT = Path(__file__).parent
+ROOT = _ROOT_DIR
 WEBUI_CONFIG = ROOT / "webui_config.json"
 
 
