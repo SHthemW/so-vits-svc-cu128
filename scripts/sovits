@@ -18,14 +18,16 @@ usage() {
 Usage:
   sovits start webui [--local]
   sovits start cmd
-  sovits start tensorboard
+  sovits start tensorboard [--local]
 
 Commands:
   webui        Start WebUI. Public Gradio share is enabled by default.
   webui --local
                Start WebUI without public Gradio share.
   cmd          Open a shell with the bundled Python environment activated.
-  tensorboard  Start TensorBoard for logs/44k.
+  tensorboard  Start TensorBoard for logs/44k. Public Gradio share is enabled by default.
+  tensorboard --local
+               Start TensorBoard without public Gradio share.
 EOF
 }
 
@@ -85,11 +87,76 @@ start_cmd() {
 }
 
 start_tensorboard() {
+    local share="true"
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --local)
+                share="false"
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                die "unknown tensorboard option: $1"
+                ;;
+        esac
+        shift
+    done
+
     require_python_env
     cd "$ROOT_DIR"
     "$PYTHON" -c 'from startup_banner import emit_startup_banner; emit_startup_banner("# TensorBoard")'
     echo "Starting TensorBoard for $ROOT_DIR/logs/44k ..."
-    exec "$PYTHON" -m tensorboard.main --logdir "$ROOT_DIR/logs/44k"
+    if [ "$share" = "true" ]; then
+        exec "$PYTHON" - <<PY
+import secrets
+import signal
+import subprocess
+import sys
+import time
+
+from gradio.networking import setup_tunnel
+
+cmd = [
+    sys.executable,
+    "-m",
+    "tensorboard.main",
+    "--logdir",
+    "$ROOT_DIR/logs/44k",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "6006",
+]
+
+proc = subprocess.Popen(cmd)
+
+try:
+    time.sleep(3)
+    share_url = setup_tunnel(
+        local_host="127.0.0.1",
+        local_port=6006,
+        share_token=secrets.token_urlsafe(32),
+        share_server_address=None,
+    )
+    print()
+    print(f"TensorBoard local URL:  http://127.0.0.1:6006")
+    print(f"TensorBoard public URL: {share_url}")
+    print("Press Ctrl+C to stop TensorBoard.")
+    print()
+    proc.wait()
+except KeyboardInterrupt:
+    proc.send_signal(signal.SIGINT)
+    proc.wait()
+finally:
+    if proc.poll() is None:
+        proc.terminate()
+PY
+    else
+        exec "$PYTHON" -m tensorboard.main --logdir "$ROOT_DIR/logs/44k" --host 127.0.0.1 --port 6006
+    fi
 }
 
 if [ "$#" -lt 1 ]; then
@@ -114,8 +181,7 @@ case "$command" in
                 start_cmd
                 ;;
             tensorboard)
-                [ "$#" -eq 0 ] || die "tensorboard does not accept extra arguments"
-                start_tensorboard
+                start_tensorboard "$@"
                 ;;
             -h|--help|help)
                 usage

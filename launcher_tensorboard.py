@@ -3,7 +3,10 @@ import sys
 import subprocess
 import webbrowser
 import time
+import signal
+import secrets
 from startup_banner import emit_startup_banner
+from gradio.networking import setup_tunnel
 
 if getattr(sys, 'frozen', False):
     script_dir = os.path.dirname(os.path.abspath(sys.executable))
@@ -32,13 +35,37 @@ print(f"Log directory: {logdir}")
 print("TensorBoard 正在启动, 请稍候...")
 print()
 
-proc = subprocess.Popen([scripts_python, "-m", "tensorboard.main", "--logdir", logdir])
+proc = subprocess.Popen([
+    scripts_python,
+    "-m",
+    "tensorboard.main",
+    "--logdir",
+    logdir,
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "6006",
+])
 
-time.sleep(3)
-print("正在打开浏览器 http://localhost:6006 ...")
-webbrowser.open("http://localhost:6006")
-print("按 Ctrl+C 可停止 TensorBoard")
-print()
+try:
+    time.sleep(3)
+    public_url = setup_tunnel(
+        local_host="127.0.0.1",
+        local_port=6006,
+        share_token=secrets.token_urlsafe(32),
+        share_server_address=None,
+    )
+    print("正在打开浏览器 http://localhost:6006 ...")
+    webbrowser.open("http://localhost:6006")
+    print(f"TensorBoard 公网 URL: {public_url}")
+    print("按 Ctrl+C 可停止 TensorBoard")
+    print()
+    proc.wait()
+except KeyboardInterrupt:
+    proc.send_signal(signal.SIGINT)
+    proc.wait()
+finally:
+    if proc.poll() is None:
+        proc.terminate()
 
-proc.wait()
 os.system("pause")
