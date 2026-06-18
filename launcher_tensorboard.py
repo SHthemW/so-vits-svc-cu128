@@ -5,6 +5,7 @@ import webbrowser
 import time
 import signal
 import secrets
+import socket
 from startup_banner import emit_startup_banner
 from gradio.networking import setup_tunnel
 
@@ -35,6 +36,10 @@ print(f"Log directory: {logdir}")
 print("TensorBoard 正在启动, 请稍候...")
 print()
 
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+
 proc = subprocess.Popen([
     scripts_python,
     "-m",
@@ -44,19 +49,19 @@ proc = subprocess.Popen([
     "--host",
     "127.0.0.1",
     "--port",
-    "6006",
+    str(port),
 ])
 
 try:
-    time.sleep(3)
+    time.sleep(2)
     public_url = setup_tunnel(
         local_host="127.0.0.1",
-        local_port=6006,
+        local_port=port,
         share_token=secrets.token_urlsafe(32),
         share_server_address=None,
     )
-    print("正在打开浏览器 http://localhost:6006 ...")
-    webbrowser.open("http://localhost:6006")
+    print(f"正在打开浏览器 http://localhost:{port} ...")
+    webbrowser.open(f"http://localhost:{port}")
     print(f"TensorBoard 公网 URL: {public_url}")
     print("按 Ctrl+C 可停止 TensorBoard")
     print()

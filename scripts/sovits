@@ -111,6 +111,7 @@ start_tensorboard() {
     echo "Starting TensorBoard for $ROOT_DIR/logs/44k ..."
     if [ "$share" = "true" ]; then
         exec "$PYTHON" - <<PY
+import socket
 import secrets
 import signal
 import subprocess
@@ -119,6 +120,12 @@ import time
 
 from gradio.networking import setup_tunnel
 
+def pick_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+port = pick_port()
 cmd = [
     sys.executable,
     "-m",
@@ -128,21 +135,21 @@ cmd = [
     "--host",
     "127.0.0.1",
     "--port",
-    "6006",
+    str(port),
 ]
 
 proc = subprocess.Popen(cmd)
 
 try:
-    time.sleep(3)
+    time.sleep(2)
     share_url = setup_tunnel(
         local_host="127.0.0.1",
-        local_port=6006,
+        local_port=port,
         share_token=secrets.token_urlsafe(32),
         share_server_address=None,
     )
     print()
-    print(f"TensorBoard local URL:  http://127.0.0.1:6006")
+    print(f"TensorBoard local URL:  http://127.0.0.1:{port}")
     print(f"TensorBoard public URL: {share_url}")
     print("Press Ctrl+C to stop TensorBoard.")
     print()
