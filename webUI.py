@@ -12,13 +12,6 @@ import webbrowser
 from itertools import chain
 from pathlib import Path
 
-_ROOT_DIR = Path(__file__).resolve().parent
-_TMP_DIR = _ROOT_DIR / ".cache" / "tmp"
-_TMP_DIR.mkdir(parents=True, exist_ok=True)
-os.environ["TMPDIR"] = str(_TMP_DIR)
-os.environ["TEMP"] = str(_TMP_DIR)
-os.environ["TMP"] = str(_TMP_DIR)
-
 # os.system("wget -P cvec/ https://huggingface.co/spaces/innnky/nanami/resolve/main/checkpoint_best_legacy_500.pt")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 warnings.filterwarnings(
