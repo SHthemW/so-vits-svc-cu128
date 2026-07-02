@@ -11,6 +11,7 @@ import warnings
 import webbrowser
 from itertools import chain
 from pathlib import Path
+from typing import Optional
 
 # os.system("wget -P cvec/ https://huggingface.co/spaces/innnky/nanami/resolve/main/checkpoint_best_legacy_500.pt")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
@@ -332,7 +333,7 @@ def _local_model_dir_from_selection(selection: str) -> str:
     return str(TRAINED_DIR / rel_dir)
 
 
-def _server_path_from_selection(selection: str) -> Path | None:
+def _server_path_from_selection(selection: str) -> Optional[Path]:
     rel_path = _parse_dropdown_selection(selection)
     if not rel_path:
         return None
@@ -378,7 +379,7 @@ def _pick_model_file(folder: str) -> str:
     return candidates[0]
 
 
-def _last_local_model_choice(choices: list[str]) -> str | None:
+def _last_local_model_choice(choices: list[str]) -> Optional[str]:
     last = _get_webui_config_key("last_local_model", None)
     if not last:
         return None
@@ -388,7 +389,7 @@ def _last_local_model_choice(choices: list[str]) -> str | None:
     return None
 
 
-def _last_local_file_choice(config_key: str, choices: list[str]) -> str | None:
+def _last_local_file_choice(config_key: str, choices: list[str]) -> Optional[str]:
     last = _get_webui_config_key(config_key, None)
     if not last:
         return None
