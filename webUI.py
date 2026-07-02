@@ -31,7 +31,17 @@ from compress_model import removeOptimizer
 from edgetts.tts_voices import SUPPORTED_LANGUAGES
 from inference.infer_tool import Svc
 from utils import mix_model
-from webui_manage import build_management_tab
+from webui_manage import (
+    CONFIG_PATH,
+    DIFF_CONFIG_PATH,
+    DIFF_DIR,
+    LOGS_DIR,
+    TRAINED_DIR,
+    _fmt_size,
+    _fmt_time,
+    build_management_tab,
+    scan_exported_models,
+)
 from webui_train import build_training_tab, register_dataset_transfer_routes, _get_webui_config_key, _save_webui_config_key
 from startup_banner import emit_startup_banner
 
@@ -45,7 +55,8 @@ model = None
 spk = None
 debug = False
 
-local_model_root = './trained'
+local_model_root = str(TRAINED_DIR)
+project_root = Path(__file__).parent
 
 cuda = {}
 if torch.cuda.is_available():
@@ -310,29 +321,119 @@ def updata_mix_info(files):
             traceback.print_exc()
         raise gr.Error(e)
 
-def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection):
+def _parse_dropdown_selection(selection: str) -> str:
+    return selection.split("|")[0].strip() if selection else ""
+
+
+def _local_model_dir_from_selection(selection: str) -> str:
+    rel_dir = _parse_dropdown_selection(selection)
+    if not rel_dir:
+        return ""
+    return str(TRAINED_DIR / rel_dir)
+
+
+def _server_path_from_selection(selection: str) -> Path | None:
+    rel_path = _parse_dropdown_selection(selection)
+    if not rel_path:
+        return None
+    path = Path(rel_path)
+    if path.is_absolute():
+        return path
+    if rel_path.startswith(("logs/", "configs/")):
+        return project_root / rel_path
+    return TRAINED_DIR / rel_path
+
+
+def _local_model_paths_from_selection(selection: str) -> tuple[str, str]:
+    path = _server_path_from_selection(selection)
+    if path is None:
+        return "", ""
+    if path.is_file():
+        config_path = path.parent / "config.json"
+        if not config_path.exists():
+            config_path = CONFIG_PATH
+        return str(path), str(config_path)
+    return _pick_model_file(str(path)), _pick_single_file(str(path), "*.json", "配置文件")
+
+
+def _local_file_path_from_selection(selection: str) -> str:
+    path = _server_path_from_selection(selection)
+    if path is None:
+        return ""
+    return str(path)
+
+
+def _pick_single_file(folder: str, pattern: str, label: str) -> str:
+    files = sorted(glob.glob(os.path.join(folder, pattern)))
+    if not files:
+        raise gr.Error(f"本地模型目录中未找到{label}: {folder}")
+    return files[0]
+
+
+def _pick_model_file(folder: str) -> str:
+    files = sorted(glob.glob(os.path.join(folder, "*.pth")))
+    candidates = [f for f in files if not Path(f).name.startswith("D_")]
+    if not candidates:
+        raise gr.Error(f"本地模型目录中未找到模型文件: {folder}")
+    return candidates[0]
+
+
+def _last_local_model_choice(choices: list[str]) -> str | None:
+    last = _get_webui_config_key("last_local_model", None)
+    if not last:
+        return None
+    for choice in choices:
+        if _parse_dropdown_selection(choice) == last:
+            return choice
+    return None
+
+
+def _last_local_file_choice(config_key: str, choices: list[str]) -> str | None:
+    last = _get_webui_config_key(config_key, None)
+    if not last:
+        return None
+    last_path = Path(last)
+    if last_path.is_absolute():
+        try:
+            last = str(last_path.relative_to(TRAINED_DIR))
+        except ValueError:
+            return None
+    for choice in choices:
+        if _parse_dropdown_selection(choice) == last:
+            return choice
+    return None
+
+
+def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection,local_diff_model_selection,local_diff_config_selection,local_cluster_model_selection):
     global model
     try:
         device = cuda[device] if "CUDA" in device else device
-        cluster_filepath = os.path.split(cluster_model_path.name) if cluster_model_path is not None else "no_cluster"
         # get model and config path
         if (local_model_enabled):
             # local path
-            model_path = glob.glob(os.path.join(local_model_selection, '*.pth'))[0]
-            config_path = glob.glob(os.path.join(local_model_selection, '*.json'))[0]
+            model_path, config_path = _local_model_paths_from_selection(local_model_selection)
+            if not model_path:
+                raise gr.Error("请先选择服务器本地模型")
+            diff_model_path = _local_file_path_from_selection(local_diff_model_selection)
+            diff_config_path = _local_file_path_from_selection(local_diff_config_selection)
+            cluster_model_path = _local_file_path_from_selection(local_cluster_model_selection)
         else:
             # upload from webpage
             model_path = model_path.name
             config_path = config_path.name
+            diff_model_path = diff_model_path.name if diff_model_path is not None else ""
+            diff_config_path = diff_config_path.name if diff_config_path is not None else ""
+            cluster_model_path = cluster_model_path.name if cluster_model_path is not None else ""
+        cluster_filepath = os.path.split(cluster_model_path) if cluster_model_path else ("", "no_cluster")
         fr = ".pkl" in cluster_filepath[1]
         model = Svc(model_path,
                 config_path,
                 device=device if device != "Auto" else None,
-                cluster_model_path = cluster_model_path.name if cluster_model_path is not None else "",
+                cluster_model_path = cluster_model_path,
                 nsf_hifigan_enhance=enhance,
-                diffusion_model_path = diff_model_path.name if diff_model_path is not None else "",
-                diffusion_config_path = diff_config_path.name if diff_config_path is not None else "",
-                shallow_diffusion = True if diff_model_path is not None else False,
+                diffusion_model_path = diff_model_path,
+                diffusion_config_path = diff_config_path,
+                shallow_diffusion = True if diff_model_path else False,
                 only_diffusion = only_diffusion,
                 spk_mix_enable = use_spk_mix,
                 feature_retrieval = fr
@@ -340,27 +441,33 @@ def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_
         spks = list(model.spk2id.keys())
         device_name = torch.cuda.get_device_properties(model.dev).name if "cuda" in str(model.dev) else str(model.dev)
         if local_model_enabled and local_model_selection:
-            _save_webui_config_key("last_local_model", local_model_selection)
+            _save_webui_config_key("last_local_model", _parse_dropdown_selection(local_model_selection))
+            if local_diff_model_selection:
+                _save_webui_config_key("last_local_diff_model", _parse_dropdown_selection(local_diff_model_selection))
+            if local_diff_config_selection:
+                _save_webui_config_key("last_local_diff_config", _parse_dropdown_selection(local_diff_config_selection))
+            if local_cluster_model_selection:
+                _save_webui_config_key("last_local_cluster_model", _parse_dropdown_selection(local_cluster_model_selection))
         else:
             _save_webui_config_key("last_upload_model", model_path)
             _save_webui_config_key("last_upload_config", config_path)
-        if cluster_model_path is not None:
-            _save_webui_config_key("last_cluster_model", cluster_model_path.name)
-        if diff_model_path is not None:
-            _save_webui_config_key("last_diff_model", diff_model_path.name)
-        if diff_config_path is not None:
-            _save_webui_config_key("last_diff_config", diff_config_path.name)
+            if cluster_model_path:
+                _save_webui_config_key("last_cluster_model", cluster_model_path)
+            if diff_model_path:
+                _save_webui_config_key("last_diff_model", diff_model_path)
+            if diff_config_path:
+                _save_webui_config_key("last_diff_config", diff_config_path)
         msg = f"成功加载模型到设备{device_name}上\n"
-        if cluster_model_path is None:
+        if not cluster_model_path:
             msg += "未加载聚类模型或特征检索模型\n"
         elif fr:
             msg += f"特征检索模型{cluster_filepath[1]}加载成功\n"
         else:
             msg += f"聚类模型{cluster_filepath[1]}加载成功\n"
-        if diff_model_path is None:
+        if not diff_model_path:
             msg += "未加载扩散模型\n"
         else:
-            msg += f"扩散模型{diff_model_path.name}加载成功\n"
+            msg += f"扩散模型{os.path.basename(diff_model_path)}加载成功\n"
         msg += "当前模型的可用音色：\n"
         for i in spks:
             msg += i + " "
@@ -503,20 +610,60 @@ def model_compression(_model):
         return f"模型已成功被保存在了{output_path}"
 
 def scan_local_models():
-    res = []
-    candidates = glob.glob(os.path.join(local_model_root, '**', '*.json'), recursive=True)
-    candidates = set([os.path.dirname(c) for c in candidates])
-    for candidate in candidates:
-        jsons = glob.glob(os.path.join(candidate, '*.json'))
-        pths = glob.glob(os.path.join(candidate, '*.pth'))
-        if (len(jsons) == 1 and len(pths) == 1):
-            # must contain exactly one json and one pth file
-            res.append(candidate)
-    return res
+    choices = list(scan_exported_models())
+    if LOGS_DIR.exists():
+        for f in sorted(LOGS_DIR.glob("G_*.pth")):
+            rel = f.relative_to(project_root)
+            choices.append(f"{rel} | 检查点 | {_fmt_size(f.stat().st_size)} | {_fmt_time(f.stat().st_mtime)}")
+    return choices
+
+
+def _scan_files(roots: list[Path], patterns: list[str]) -> list[str]:
+    seen = set()
+    choices = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for pattern in patterns:
+            for f in sorted(root.rglob(pattern)):
+                if not f.is_file() or f in seen:
+                    continue
+                seen.add(f)
+                if f.is_relative_to(TRAINED_DIR):
+                    rel = f.relative_to(TRAINED_DIR)
+                else:
+                    rel = f.relative_to(project_root)
+                choices.append(f"{rel} | {_fmt_size(f.stat().st_size)} | {_fmt_time(f.stat().st_mtime)}")
+    return choices
+
+
+def scan_local_diffusion_models():
+    return _scan_files([TRAINED_DIR, DIFF_DIR], ["diffusion_*.pt", "model_*.pt"])
+
+
+def scan_local_diffusion_configs():
+    choices = _scan_files([TRAINED_DIR, DIFF_DIR], ["diffusion.yaml", "diffusion.yml", "config.yaml", "config.yml"])
+    if DIFF_CONFIG_PATH.exists():
+        rel = DIFF_CONFIG_PATH.relative_to(project_root)
+        choices.append(f"{rel} | {_fmt_size(DIFF_CONFIG_PATH.stat().st_size)} | {_fmt_time(DIFF_CONFIG_PATH.stat().st_mtime)}")
+    return choices
+
+
+def scan_local_cluster_models():
+    return _scan_files([TRAINED_DIR, LOGS_DIR], ["feature_and_index.pkl", "kmeans_*.pt"])
+
 
 def local_model_refresh_fn():
-    choices = scan_local_models()
-    return gr.Dropdown(choices=choices)
+    model_choices = scan_local_models()
+    diff_model_choices = scan_local_diffusion_models()
+    diff_config_choices = scan_local_diffusion_configs()
+    cluster_choices = scan_local_cluster_models()
+    return (
+        gr.Dropdown(choices=model_choices, value=_last_local_model_choice(model_choices)),
+        gr.Dropdown(choices=diff_model_choices, value=_last_local_file_choice("last_local_diff_model", diff_model_choices)),
+        gr.Dropdown(choices=diff_config_choices, value=_last_local_file_choice("last_local_diff_config", diff_config_choices)),
+        gr.Dropdown(choices=cluster_choices, value=_last_local_file_choice("last_local_cluster_model", cluster_choices)),
+    )
 
 def debug_change():
     global debug
@@ -552,28 +699,49 @@ with gr.Blocks(
                         with gr.TabItem('上传') as local_model_tab_upload:
                             _last_upload_model = _get_webui_config_key("last_upload_model", None)
                             _last_upload_config = _get_webui_config_key("last_upload_config", None)
+                            _last_diff_model = _get_webui_config_key("last_diff_model", None)
+                            _last_diff_config = _get_webui_config_key("last_diff_config", None)
+                            _last_cluster = _get_webui_config_key("last_cluster_model", None)
                             with gr.Row():
                                 model_path = gr.File(label="选择模型文件",
                                                      value=_last_upload_model if _last_upload_model and os.path.exists(_last_upload_model) else None)
                                 config_path = gr.File(label="选择配置文件",
                                                       value=_last_upload_config if _last_upload_config and os.path.exists(_last_upload_config) else None)
+                            with gr.Row():
+                                diff_model_path = gr.File(label="选择扩散模型文件",
+                                                           value=_last_diff_model if _last_diff_model and os.path.exists(_last_diff_model) else None)
+                                diff_config_path = gr.File(label="选择扩散模型配置文件",
+                                                            value=_last_diff_config if _last_diff_config and os.path.exists(_last_diff_config) else None)
+                            cluster_model_path = gr.File(label="选择聚类模型或特征检索文件（没有可以不选）",
+                                                          value=_last_cluster if _last_cluster and os.path.exists(_last_cluster) else None)
                         with gr.TabItem('本地') as local_model_tab_local:
-                            gr.Markdown(f'模型应当放置于{local_model_root}文件夹下')
+                            gr.Markdown(f'可选择 {local_model_root} 下的已导出模型，或 logs/44k 下的训练检查点')
                             local_model_refresh_btn = gr.Button('刷新本地模型列表')
                             _local_models = scan_local_models()
-                            _last_model = _get_webui_config_key("last_local_model", None)
-                            _last_model_val = _last_model if _last_model in _local_models else None
-                            local_model_selection = gr.Dropdown(label='选择模型文件夹', choices=_local_models, value=_last_model_val, interactive=True)
-                    _last_diff_model = _get_webui_config_key("last_diff_model", None)
-                    _last_diff_config = _get_webui_config_key("last_diff_config", None)
-                    _last_cluster = _get_webui_config_key("last_cluster_model", None)
-                    with gr.Row():
-                        diff_model_path = gr.File(label="选择扩散模型文件",
-                                                   value=_last_diff_model if _last_diff_model and os.path.exists(_last_diff_model) else None)
-                        diff_config_path = gr.File(label="选择扩散模型配置文件",
-                                                    value=_last_diff_config if _last_diff_config and os.path.exists(_last_diff_config) else None)
-                    cluster_model_path = gr.File(label="选择聚类模型或特征检索文件（没有可以不选）",
-                                                  value=_last_cluster if _last_cluster and os.path.exists(_last_cluster) else None)
+                            _last_model_val = _last_local_model_choice(_local_models)
+                            local_model_selection = gr.Dropdown(label='选择模型或检查点', choices=_local_models, value=_last_model_val, interactive=True)
+                            _local_diff_models = scan_local_diffusion_models()
+                            _local_diff_configs = scan_local_diffusion_configs()
+                            _local_clusters = scan_local_cluster_models()
+                            with gr.Row():
+                                local_diff_model_selection = gr.Dropdown(
+                                    label='选择扩散模型文件（没有可以不选）',
+                                    choices=_local_diff_models,
+                                    value=_last_local_file_choice("last_local_diff_model", _local_diff_models),
+                                    interactive=True,
+                                )
+                                local_diff_config_selection = gr.Dropdown(
+                                    label='选择扩散模型配置文件（没有可以不选）',
+                                    choices=_local_diff_configs,
+                                    value=_last_local_file_choice("last_local_diff_config", _local_diff_configs),
+                                    interactive=True,
+                                )
+                            local_cluster_model_selection = gr.Dropdown(
+                                label='选择聚类模型或特征检索文件（没有可以不选）',
+                                choices=_local_clusters,
+                                value=_last_local_file_choice("last_local_cluster_model", _local_clusters),
+                                interactive=True,
+                            )
                     device = gr.Dropdown(label="推理设备，默认为自动选择CPU和GPU", choices=["Auto",*cuda.keys(),"cpu"], value="Auto")
                     enhance = gr.Checkbox(label="是否使用NSF_HIFIGAN增强,该选项对部分训练集少的模型有一定的音质增强效果，但是对训练好的模型有反面效果，默认关闭", value=False)
                     only_diffusion = gr.Checkbox(label="是否使用全扩散推理，开启后将不使用So-VITS模型，仅使用扩散模型进行完整扩散推理，默认关闭", value=False)
@@ -681,7 +849,17 @@ with gr.Blocks(
                     """)
                 debug_button = gr.Checkbox(label="Debug模式，如果向社区反馈BUG需要打开，打开后控制台可以显示具体错误提示", value=debug)
         # refresh local model list
-        local_model_refresh_btn.click(local_model_refresh_fn, outputs=local_model_selection, queue=False, show_api=False)
+        local_model_refresh_btn.click(
+            local_model_refresh_fn,
+            outputs=[
+                local_model_selection,
+                local_diff_model_selection,
+                local_diff_config_selection,
+                local_cluster_model_selection,
+            ],
+            queue=False,
+            show_api=False,
+        )
         # set local enabled/disabled on tab switch
         local_model_tab_upload.select(lambda: False, outputs=local_model_enabled, queue=False, show_api=False)
         local_model_tab_local.select(lambda: True, outputs=local_model_enabled, queue=False, show_api=False)
@@ -690,7 +868,27 @@ with gr.Blocks(
         vc_submit2.click(vc_fn2, [text2tts, tts_lang, tts_gender, tts_rate, tts_volume, sid, output_format, vc_transform,auto_f0,cluster_ratio, slice_db, noise_scale,pad_seconds,cl_num,lg_num,lgr_num,f0_predictor,enhancer_adaptive_key,cr_threshold,k_step,use_spk_mix,second_encoding,loudness_envelope_adjustment], [vc_output1, vc_output2])
 
         debug_button.change(debug_change,[],[], queue=False, show_api=False)
-        model_load_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device,enhance,diff_model_path,diff_config_path,only_diffusion,use_spk_mix,local_model_enabled,local_model_selection],[sid,sid_output], show_api=False)
+        model_load_button.click(
+            modelAnalysis,
+            [
+                model_path,
+                config_path,
+                cluster_model_path,
+                device,
+                enhance,
+                diff_model_path,
+                diff_config_path,
+                only_diffusion,
+                use_spk_mix,
+                local_model_enabled,
+                local_model_selection,
+                local_diff_model_selection,
+                local_diff_config_selection,
+                local_cluster_model_selection,
+            ],
+            [sid,sid_output],
+            show_api=False,
+        )
         model_unload_button.click(modelUnload,[],[sid,sid_output], queue=False, show_api=False)
     app.queue(default_concurrency_limit=8)
     webbrowser.open("http://127.0.0.1:7860")
