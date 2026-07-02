@@ -576,6 +576,7 @@ def build_management_tab():
                                           interactive=True, scale=2)
             export_feat_dd = gr.Dropdown(label="特征检索/聚类模型 (可选)", choices=scan_feature_models(),
                                           interactive=True, scale=2)
+        export_refresh = gr.Button("刷新全部模型")
         export_dir_input = gr.Textbox(label="导出目录",
                                       placeholder="例如: /workspace/so-vits-svc-cu128/trained 或 /mnt/d/my_models",
                                       interactive=True)
@@ -612,6 +613,15 @@ def build_management_tab():
     )
     dataset_delete_btn.click(delete_dataset, [dataset_dd], [dataset_status, dataset_dd]).then(
         describe_datasets, [], [dataset_overview]
+    )
+    export_refresh.click(
+        lambda: (
+            gr.Dropdown(choices=scan_checkpoints()),
+            gr.Dropdown(choices=scan_diff_checkpoints()),
+            gr.Dropdown(choices=scan_feature_models()),
+        ),
+        [],
+        [export_ckpt_dd, export_diff_dd, export_feat_dd],
     )
     export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd, export_dir_input], [export_output])
 
