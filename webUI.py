@@ -9,9 +9,57 @@ import time
 import traceback
 import warnings
 import webbrowser
+from importlib.util import find_spec
 from itertools import chain
 from pathlib import Path
 from typing import Optional
+
+
+def _prepare_torchcodec_ffmpeg_libraries():
+    av_spec = find_spec("av")
+    if av_spec is None or not av_spec.submodule_search_locations:
+        return
+
+    av_libs = Path(av_spec.submodule_search_locations[0]).parent / "av.libs"
+    if not av_libs.is_dir():
+        return
+
+    library_patterns = {
+        "libavutil.so.60": "libavutil-*.so.60.*",
+        "libavcodec.so.62": "libavcodec-*.so.62.*",
+        "libavformat.so.62": "libavformat-*.so.62.*",
+        "libavdevice.so.62": "libavdevice-*.so.62.*",
+        "libavfilter.so.11": "libavfilter-*.so.11.*",
+        "libswscale.so.9": "libswscale-*.so.9.*",
+        "libswresample.so.6": "libswresample-*.so.6.*",
+    }
+
+    for soname, pattern in library_patterns.items():
+        matches = sorted(av_libs.glob(pattern))
+        if not matches:
+            continue
+        link_path = av_libs / soname
+        target_name = matches[0].name
+        if link_path.is_symlink() and os.readlink(link_path) == target_name:
+            continue
+        if link_path.exists() or link_path.is_symlink():
+            link_path.unlink()
+        link_path.symlink_to(target_name)
+
+    av_libs_path = str(av_libs.resolve())
+    library_paths = os.environ.get("LD_LIBRARY_PATH", "").split(":")
+    if av_libs_path not in library_paths and os.environ.get("SVC_FFMPEG_LIBS_READY") != "1":
+        env = os.environ.copy()
+        env["LD_LIBRARY_PATH"] = (
+            av_libs_path
+            if not env.get("LD_LIBRARY_PATH")
+            else f"{av_libs_path}:{env['LD_LIBRARY_PATH']}"
+        )
+        env["SVC_FFMPEG_LIBS_READY"] = "1"
+        os.execvpe(sys.executable, [sys.executable, *sys.argv], env)
+
+
+_prepare_torchcodec_ffmpeg_libraries()
 
 # os.system("wget -P cvec/ https://huggingface.co/spaces/innnky/nanami/resolve/main/checkpoint_best_legacy_500.pt")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
