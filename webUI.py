@@ -468,6 +468,10 @@ def modelAnalysis(model_path,config_path,cluster_model_path,device,enhance,diff_
             cluster_model_path = _local_file_path_from_selection(local_cluster_model_selection)
         else:
             # upload from webpage
+            if model_path is None:
+                raise gr.Error("请先上传模型文件，并等待上传完成")
+            if config_path is None:
+                raise gr.Error("请先上传配置文件，并等待上传完成")
             model_path = model_path.name
             config_path = config_path.name
             diff_model_path = diff_model_path.name if diff_model_path is not None else ""
