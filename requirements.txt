@@ -9,6 +9,7 @@ scipy==1.10.0
 SoundFile==0.12.1
 torch
 torchaudio
+torchcodec==0.13.0
 torchcrepe
 tqdm
 rich
