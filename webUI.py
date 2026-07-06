@@ -122,10 +122,72 @@ def _install_dataset_transfer_routes():
     def create_app_with_dataset_transfer(*args, **kwargs):
         fastapi_app = original_create_app(*args, **kwargs)
         register_dataset_transfer_routes(fastapi_app)
+        _install_upload_disconnect_guard(fastapi_app)
         return fastapi_app
 
     create_app_with_dataset_transfer._svc_dataset_transfer_patched = True
     gradio.routes.App.create_app = staticmethod(create_app_with_dataset_transfer)
+
+
+def _install_upload_disconnect_guard(fastapi_app):
+    if getattr(fastapi_app.state, "_svc_upload_disconnect_guard", False):
+        return
+
+    from starlette.requests import ClientDisconnect
+    from starlette.responses import JSONResponse, Response
+
+    fastapi_app.state._svc_upload_progress = {}
+
+    @fastapi_app.get("/svc-upload-progress")
+    async def svc_upload_progress(upload_id: str):
+        progress = fastapi_app.state._svc_upload_progress.get(upload_id, {})
+        return JSONResponse(
+            {
+                "loaded": progress.get("loaded", 0),
+                "done": progress.get("done", False),
+                "status": progress.get("status", "uploading"),
+            }
+        )
+
+    @fastapi_app.middleware("http")
+    async def svc_upload_disconnect_guard(request, call_next):
+        upload_id = request.query_params.get("upload_id") if request.url.path.endswith("/upload") else None
+        if upload_id:
+            progress = fastapi_app.state._svc_upload_progress.setdefault(
+                upload_id,
+                {"loaded": 0, "done": False, "status": "uploading", "updated": time.time()},
+            )
+            progress.update({"loaded": 0, "done": False, "status": "uploading", "updated": time.time()})
+            original_receive = request._receive
+
+            async def receive_with_progress():
+                message = await original_receive()
+                if message.get("type") == "http.request":
+                    body = message.get("body", b"")
+                    if body:
+                        progress["loaded"] = progress.get("loaded", 0) + len(body)
+                        progress["updated"] = time.time()
+                return message
+
+            request._receive = receive_with_progress
+
+        try:
+            response = await call_next(request)
+            if upload_id:
+                progress["done"] = True
+                progress["status"] = "done" if response.status_code < 400 else "error"
+                progress["updated"] = time.time()
+            return response
+        except ClientDisconnect:
+            if request.url.path.endswith("/upload"):
+                if upload_id:
+                    progress["done"] = True
+                    progress["status"] = "disconnected"
+                    progress["updated"] = time.time()
+                return Response("Client disconnected during upload", status_code=499)
+            raise
+
+    fastapi_app.state._svc_upload_disconnect_guard = True
 
 
 _install_dataset_transfer_routes()
@@ -329,12 +391,42 @@ SVC_UI_JS = r"""
     initialized: false,
     uploadInFlight: false,
     compressedUploadBytes: 0,
+    uploadId: "",
     uploadProgressTimer: null,
     uploadCompleteLogged: false,
     parseWaveBaseline: "",
     parseObserver: null,
     parseTimer: null,
   };
+
+  function isLikelyUploadRequest(input, init) {
+    return requestMethod(input, init).toUpperCase() === "POST"
+      && /\/upload(\/|\?|$)/.test(requestUrl(input));
+  }
+
+  function requestBody(input, init) {
+    if (init && Object.prototype.hasOwnProperty.call(init, "body")) return init.body;
+    if (input && Object.prototype.hasOwnProperty.call(input, "body")) return input.body;
+    return null;
+  }
+
+  function canRetryUpload(input, init) {
+    const body = requestBody(input, init);
+    return body instanceof FormData;
+  }
+
+  function retryInit(init) {
+    if (!init) return init;
+    return { ...init, signal: undefined };
+  }
+
+  function uploadIdFromRequest(input) {
+    try {
+      return new URL(requestUrl(input), window.location.href).searchParams.get("upload_id") || "";
+    } catch (error) {
+      return "";
+    }
+  }
 
   function uploadProgressMessage(loaded, total) {
     const expected = compressionState.compressedUploadBytes || total || 0;
@@ -344,24 +436,15 @@ SVC_UI_JS = r"""
     return `上传中: ${percent}% (${loadedText}，压缩后 ${formatBytes(expected)})`;
   }
 
-  function nativeUploadPercent() {
-    const cssValue = document.documentElement.style.getPropertyValue("--upload-progress-width");
-    const cssPercent = Number.parseFloat(cssValue);
-    if (Number.isFinite(cssPercent)) return clamp(cssPercent, 0, 100);
-    const progress = audioComponentRoot()?.querySelector("progress");
-    if (progress && Number.isFinite(progress.value)) return clamp(progress.value, 0, 100);
-    return null;
-  }
-
   function startUploadProgressWatch() {
     stopUploadProgressWatch();
-    document.documentElement.style.setProperty("--upload-progress-width", "0%");
     compressionState.uploadInFlight = true;
     compressionState.uploadCompleteLogged = false;
-    let lastPercent = -1;
+    let lastLoaded = -1;
+    let polling = false;
     const startedAt = Date.now();
     logCompressionStep(uploadProgressMessage(0, compressionState.compressedUploadBytes));
-    compressionState.uploadProgressTimer = window.setInterval(() => {
+    compressionState.uploadProgressTimer = window.setInterval(async () => {
       const currentWaveformSignature = waveformSignature();
       if (currentWaveformSignature && currentWaveformSignature !== compressionState.parseWaveBaseline) {
         markUploadComplete();
@@ -373,16 +456,31 @@ SVC_UI_JS = r"""
         logCompressionStep("上传状态未知，请查看上传控件");
         return;
       }
-      const percent = nativeUploadPercent();
-      if (percent === null || Math.round(percent) === Math.round(lastPercent)) return;
-      lastPercent = percent;
-      const total = compressionState.compressedUploadBytes;
-      const loaded = total ? Math.round(total * percent / 100) : 0;
-      logCompressionStep(uploadProgressMessage(loaded, total));
-      if (percent >= 99.5 && Date.now() - startedAt > 300) {
-        markUploadComplete();
+      if (!compressionState.uploadId || polling) return;
+      polling = true;
+      try {
+        const progress = await fetchUploadProgress(compressionState.uploadId);
+        const total = compressionState.compressedUploadBytes;
+        const loaded = Math.min(progress.loaded || 0, total || progress.loaded || 0);
+        if (loaded !== lastLoaded) {
+          lastLoaded = loaded;
+          logCompressionStep(uploadProgressMessage(loaded, total));
+        }
+        if (progress.done) {
+          markUploadComplete();
+        }
+      } catch (error) {
+        console.info(`[SVC音频上传] 上传进度查询失败: ${error.message || error}`);
+      } finally {
+        polling = false;
       }
     }, 200);
+  }
+
+  async function fetchUploadProgress(uploadId) {
+    const response = await originalFetch(`/svc-upload-progress?upload_id=${encodeURIComponent(uploadId)}`);
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.json();
   }
 
   function stopUploadProgressWatch() {
@@ -403,8 +501,35 @@ SVC_UI_JS = r"""
 
   window.fetch = (input, init) => {
     if (shouldWrap(input, init)) return fetchWithRetry(input, init);
+    if (compressionState.uploadInFlight && isLikelyUploadRequest(input, init) && canRetryUpload(input, init)) {
+      return uploadFetchWithRetry(input, init);
+    }
     return originalFetch(input, init);
   };
+
+  async function uploadFetchWithRetry(input, init) {
+    const uploadId = uploadIdFromRequest(input);
+    if (uploadId) compressionState.uploadId = uploadId;
+    let lastResponse = null;
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await originalFetch(input, attempt === 0 ? init : retryInit(init));
+        if (response.ok) return response;
+        lastResponse = response.clone();
+        if (![404, 408, 409, 425, 429, 499, 500, 502, 503, 504].includes(response.status)) {
+          return response;
+        }
+        logCompressionStep(`上传连接异常，重试 ${attempt + 1}/3: ${response.status} ${response.statusText}`);
+      } catch (error) {
+        lastError = error;
+        logCompressionStep(`上传连接中断，重试 ${attempt + 1}/3: ${error.message || error}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900 * (attempt + 1)));
+    }
+    if (lastResponse) return lastResponse;
+    throw lastError || new Error("上传失败");
+  }
 
   function componentContainsEvent(componentId, event) {
     const path = typeof event.composedPath === "function" ? event.composedPath() : [];
@@ -417,19 +542,31 @@ SVC_UI_JS = r"""
 
   function checkboxValue(id) {
     const root = controlRoot(id);
-    const input = root && root.querySelector('input[type="checkbox"]');
+    const input = root && (
+      root.matches?.('input[type="checkbox"]')
+        ? root
+        : root.querySelector('input[type="checkbox"]')
+    );
     return Boolean(input && input.checked);
   }
 
   function numericValue(id, fallback) {
     const root = controlRoot(id);
     if (!root) return fallback;
-    const input = root.querySelector('input[type="number"], input[type="range"]');
+    const input = root.matches?.('input[type="number"], input[type="range"]')
+      ? root
+      : root.querySelector('input[type="number"], input[type="range"]');
     const value = input ? Number(input.value) : Number(root.textContent);
     return Number.isFinite(value) ? value : fallback;
   }
 
   function setNativeValue(element, value) {
+    if (element.isContentEditable) {
+      element.textContent = value || "";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
     const prototype = element instanceof HTMLTextAreaElement
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
@@ -442,8 +579,21 @@ SVC_UI_JS = r"""
 
   function updateOutputMessage(message) {
     const root = document.getElementById("svc-output-message");
-    const field = root && root.querySelector("textarea, input");
+    const field = findOutputMessageField(root);
     if (field) setNativeValue(field, message || "");
+  }
+
+  function findOutputMessageField(root) {
+    if (root) {
+      if (root.matches?.("textarea, input")) return root;
+      const field = root.querySelector("textarea, input, [contenteditable='true']");
+      if (field) return field;
+    }
+
+    const labels = Array.from(document.querySelectorAll("label, .label, .wrap span, .block-info")).reverse();
+    const label = labels.find((node) => (node.textContent || "").trim() === "Output Message");
+    const container = label?.closest("[id], .block, .form, .wrap, label") || label?.parentElement;
+    return container?.querySelector?.("textarea, input, [contenteditable='true']") || null;
   }
 
   function logCompressionStep(message) {
@@ -786,6 +936,7 @@ SVC_UI_JS = r"""
     stopUploadProgressWatch();
     compressionState.uploadInFlight = false;
     compressionState.uploadCompleteLogged = false;
+    compressionState.uploadId = "";
     logCompressionStep(`压缩中: 目标比例 ${ratio}%`);
 
     try {
