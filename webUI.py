@@ -257,6 +257,13 @@ SVC_UI_CSS = """
     border-radius: 4px;
     padding: 0 4px;
 }
+
+#svc-audio-compress-status {
+    min-height: 20px;
+    color: var(--body-text-color-subdued, #57606a);
+    font-size: 13px;
+    line-height: 1.45;
+}
 """
 
 SVC_UI_JS = r"""
@@ -325,9 +332,393 @@ SVC_UI_JS = r"""
     );
   }
 
-  window.fetch = (input, init) => shouldWrap(input, init)
-    ? fetchWithRetry(input, init)
-    : originalFetch(input, init);
+  const compressionState = {
+    initialized: false,
+    pendingAudioUpload: false,
+    uploadInFlight: false,
+    parseBaseline: "",
+    parseObserver: null,
+    parseTimer: null,
+  };
+
+  function isLikelyUploadRequest(input, init) {
+    return requestMethod(input, init).toUpperCase() === "POST"
+      && /\/upload(\/|\?|$)/.test(requestUrl(input));
+  }
+
+  async function fetchTrackedAudioUpload(input, init) {
+    if (!compressionState.uploadInFlight) {
+      compressionState.uploadInFlight = true;
+      logCompressionStep("上传中...");
+    }
+    try {
+      const response = await originalFetch(input, init);
+      if (compressionState.pendingAudioUpload) {
+        compressionState.pendingAudioUpload = false;
+        compressionState.uploadInFlight = false;
+        if (response.ok) {
+          logCompressionStep("上传完成");
+          window.setTimeout(beginAudioParseWatch, 50);
+        } else {
+          logCompressionStep(`上传失败: ${response.status} ${response.statusText}`);
+        }
+      }
+      return response;
+    } catch (error) {
+      compressionState.pendingAudioUpload = false;
+      compressionState.uploadInFlight = false;
+      logCompressionStep(`上传失败: ${error.message || error}`);
+      throw error;
+    }
+  }
+
+  window.fetch = (input, init) => {
+    if (shouldWrap(input, init)) return fetchWithRetry(input, init);
+    if (compressionState.pendingAudioUpload && isLikelyUploadRequest(input, init)) {
+      return fetchTrackedAudioUpload(input, init);
+    }
+    return originalFetch(input, init);
+  };
+
+  function componentContainsEvent(componentId, event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    return path.some((node) => node && node.id === componentId);
+  }
+
+  function controlRoot(id) {
+    return document.getElementById(id);
+  }
+
+  function checkboxValue(id) {
+    const root = controlRoot(id);
+    const input = root && root.querySelector('input[type="checkbox"]');
+    return Boolean(input && input.checked);
+  }
+
+  function numericValue(id, fallback) {
+    const root = controlRoot(id);
+    if (!root) return fallback;
+    const input = root.querySelector('input[type="number"], input[type="range"]');
+    const value = input ? Number(input.value) : Number(root.textContent);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function updateCompressionStatus(message) {
+    const status = document.getElementById("svc-audio-compress-status");
+    if (status) status.textContent = message || "";
+  }
+
+  function logCompressionStep(message) {
+    updateCompressionStatus(message);
+    console.info(`[SVC音频上传] ${message}`);
+  }
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return "0 B";
+    if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+  }
+
+  function audioComponentRoot() {
+    return document.getElementById("svc-vc-audio-input");
+  }
+
+  function audioComponentFingerprint() {
+    const root = audioComponentRoot();
+    if (!root) return "";
+    const audioSources = Array.from(root.querySelectorAll("audio, source"))
+      .map((node) => node.currentSrc || node.src || "")
+      .join("|");
+    return [
+      root.textContent || "",
+      audioSources,
+      root.querySelectorAll("canvas").length,
+      root.querySelectorAll("svg").length,
+      root.querySelectorAll("a[href], button").length,
+    ].join("::");
+  }
+
+  function audioComponentLooksParsed() {
+    const root = audioComponentRoot();
+    if (!root) return false;
+    const audio = root.querySelector("audio");
+    if (audio && (audio.currentSrc || audio.src || audio.readyState > 0)) return true;
+    if (root.querySelector("canvas, [class*='waveform'], [class*='wave']")) return true;
+    if (root.querySelector("a[href*='file='], a[download]")) return true;
+    return false;
+  }
+
+  function stopAudioParseWatch() {
+    if (compressionState.parseObserver) {
+      compressionState.parseObserver.disconnect();
+      compressionState.parseObserver = null;
+    }
+    if (compressionState.parseTimer) {
+      window.clearInterval(compressionState.parseTimer);
+      compressionState.parseTimer = null;
+    }
+  }
+
+  function beginAudioParseWatch() {
+    stopAudioParseWatch();
+    logCompressionStep("音频解析中...");
+    const startedAt = Date.now();
+    const markDoneIfReady = () => {
+      const changed = audioComponentFingerprint() !== compressionState.parseBaseline;
+      if (changed && audioComponentLooksParsed()) {
+        stopAudioParseWatch();
+        logCompressionStep("解析完成");
+        return true;
+      }
+      if (Date.now() - startedAt > 30000) {
+        stopAudioParseWatch();
+        logCompressionStep("音频解析状态未知，请查看上传控件");
+        return true;
+      }
+      return false;
+    };
+
+    const root = audioComponentRoot();
+    if (root) {
+      compressionState.parseObserver = new MutationObserver(markDoneIfReady);
+      compressionState.parseObserver.observe(root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      });
+    }
+    compressionState.parseTimer = window.setInterval(markDoneIfReady, 250);
+    markDoneIfReady();
+  }
+
+  function clamp(number, min, max) {
+    return Math.min(max, Math.max(min, number));
+  }
+
+  function writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
+
+  function audioBufferToWav(channelData, sampleRate) {
+    const bytesPerSample = 2;
+    const dataSize = channelData.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(view, 8, "WAVE");
+    writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * bytesPerSample, true);
+    view.setUint16(32, bytesPerSample, true);
+    view.setUint16(34, 8 * bytesPerSample, true);
+    writeString(view, 36, "data");
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < channelData.length; i++, offset += 2) {
+      const sample = clamp(channelData[i], -1, 1);
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+
+    return new Blob([view], { type: "audio/wav" });
+  }
+
+  function mixToMono(audioBuffer) {
+    const length = audioBuffer.length;
+    const channels = audioBuffer.numberOfChannels;
+    const mono = new Float32Array(length);
+    for (let channel = 0; channel < channels; channel++) {
+      const data = audioBuffer.getChannelData(channel);
+      for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
+    }
+    return mono;
+  }
+
+  function besselI0(x) {
+    let sum = 1;
+    let term = 1;
+    const half = x / 2;
+    for (let k = 1; k <= 24; k++) {
+      term *= (half * half) / (k * k);
+      sum += term;
+      if (term < sum * 1e-12) break;
+    }
+    return sum;
+  }
+
+  function sinc(x) {
+    if (Math.abs(x) < 1e-8) return 1;
+    const pix = Math.PI * x;
+    return Math.sin(pix) / pix;
+  }
+
+  function highQualityResample(input, sourceRate, targetRate) {
+    if (sourceRate === targetRate) return input.slice();
+    const ratio = targetRate / sourceRate;
+    const outputLength = Math.max(1, Math.round(input.length * ratio));
+    const output = new Float32Array(outputLength);
+    const filterScale = Math.min(1, ratio);
+    const radius = 32;
+    const beta = 8.6;
+    const support = Math.ceil(radius / filterScale);
+    const phaseCount = 2048;
+    const betaI0 = besselI0(beta);
+    const tables = Array.from({ length: phaseCount }, (_, phaseIndex) => {
+      const fraction = phaseIndex / phaseCount;
+      const weights = new Float32Array(support * 2 + 1);
+      for (let offset = -support; offset <= support; offset++) {
+        const x = (fraction - offset) * filterScale;
+        const r = x / radius;
+        const window = Math.abs(r) >= 1
+          ? 0
+          : besselI0(beta * Math.sqrt(1 - r * r)) / betaI0;
+        weights[offset + support] = filterScale * sinc(x) * window;
+      }
+      return weights;
+    });
+
+    for (let i = 0; i < outputLength; i++) {
+      const center = i / ratio;
+      const base = Math.floor(center);
+      const phaseIndex = Math.min(phaseCount - 1, Math.max(0, Math.round((center - base) * phaseCount)));
+      const weights = tables[phaseIndex];
+      let sum = 0;
+      let weightSum = 0;
+
+      for (let offset = -support; offset <= support; offset++) {
+        const j = base + offset;
+        if (j < 0 || j >= input.length) continue;
+        const weight = weights[offset + support];
+        sum += input[j] * weight;
+        weightSum += weight;
+      }
+
+      output[i] = weightSum ? sum / weightSum : 0;
+    }
+
+    return output;
+  }
+
+  async function decodeAudioFile(file) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) throw new Error("当前浏览器不支持 AudioContext");
+    const context = new AudioContextClass();
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const decoded = await context.decodeAudioData(arrayBuffer.slice(0));
+      return decoded;
+    } finally {
+      if (typeof context.close === "function") {
+        context.close().catch(() => {});
+      }
+    }
+  }
+
+  async function compressAudioFile(file, ratioPercent) {
+    const decoded = await decodeAudioFile(file);
+    const ratio = clamp(Number(ratioPercent) || 20, 1, 100) / 100;
+    const qualityFloorRate = decoded.sampleRate >= 32000 ? 24000 : decoded.sampleRate;
+    const targetSampleRate = clamp(
+      Math.round(Math.max(decoded.sampleRate * ratio, qualityFloorRate)),
+      1000,
+      decoded.sampleRate
+    );
+    const mono = mixToMono(decoded);
+    const resampled = highQualityResample(mono, decoded.sampleRate, targetSampleRate);
+    const wavBlob = audioBufferToWav(resampled, targetSampleRate);
+    const originalName = file.name || "audio";
+    const stem = originalName.replace(/\.[^/.]+$/, "") || "audio";
+    const compressedName = `${stem}_compressed_${Math.round(ratio * 100)}p.wav`;
+    const compressedFile = new File([wavBlob], compressedName, {
+      type: "audio/wav",
+      lastModified: Date.now(),
+    });
+    Object.defineProperty(compressedFile, "svcTargetSampleRate", { value: targetSampleRate });
+    return compressedFile;
+  }
+
+  function replaceInputFiles(input, files) {
+    const transfer = new DataTransfer();
+    for (const file of files) transfer.items.add(file);
+    input.files = transfer.files;
+  }
+
+  async function handleAudioUploadChange(event) {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+    if (!componentContainsEvent("svc-vc-audio-input", event)) return;
+    if (input.dataset.svcCompressedUpload === "1") {
+      delete input.dataset.svcCompressedUpload;
+      return;
+    }
+    if (input.dataset.svcCompressionBypass === "1") {
+      delete input.dataset.svcCompressionBypass;
+      return;
+    }
+    if (!checkboxValue("svc-audio-compress-enabled")) {
+      updateCompressionStatus("");
+      return;
+    }
+
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const ratio = clamp(numericValue("svc-audio-compress-ratio", 20), 1, 100);
+    stopAudioParseWatch();
+    compressionState.pendingAudioUpload = false;
+    compressionState.uploadInFlight = false;
+    logCompressionStep(`压缩中: 目标比例 ${ratio}%`);
+
+    try {
+      const compressedFiles = [];
+      for (const file of files) {
+        compressedFiles.push(await compressAudioFile(file, ratio));
+      }
+      const beforeBytes = files.reduce((sum, file) => sum + file.size, 0);
+      const afterBytes = compressedFiles.reduce((sum, file) => sum + file.size, 0);
+      const sampleRates = Array.from(new Set(
+        compressedFiles.map((file) => file.svcTargetSampleRate).filter(Boolean)
+      ));
+      const sampleRateText = sampleRates.length
+        ? `，采样率 ${sampleRates.map((rate) => `${(rate / 1000).toFixed(rate % 1000 ? 1 : 0)}kHz`).join("/")}`
+        : "";
+      logCompressionStep(`压缩完成: ${formatBytes(beforeBytes)} -> ${formatBytes(afterBytes)}${sampleRateText}`);
+
+      compressionState.parseBaseline = audioComponentFingerprint();
+      compressionState.pendingAudioUpload = true;
+      replaceInputFiles(input, compressedFiles);
+      input.dataset.svcCompressedUpload = "1";
+      input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    } catch (error) {
+      input.dataset.svcCompressionBypass = "1";
+      input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      logCompressionStep(`浏览器压缩失败，已按原文件上传: ${error.message || error}`);
+    }
+  }
+
+  function installAudioCompressionHook() {
+    if (compressionState.initialized) return;
+    compressionState.initialized = true;
+    document.addEventListener("change", handleAudioUploadChange, true);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installAudioCompressionHook, { once: true });
+  } else {
+    installAudioCompressionHook();
+  }
 }
 """
 
@@ -833,7 +1224,24 @@ with gr.Blocks(
                     use_spk_mix = gr.Checkbox(label = "动态声线融合", value = False, interactive = False)
             with gr.Tabs():
                 with gr.TabItem("音频转音频"):
-                    vc_input3 = gr.Audio(label="选择音频", type="filepath")
+                    vc_input3 = gr.Audio(label="选择音频", type="filepath", elem_id="svc-vc-audio-input")
+                    with gr.Row():
+                        with gr.Column():
+                            audio_compress_enabled = gr.Checkbox(
+                                label="上传前在浏览器内高质量压缩音频",
+                                value=False,
+                                elem_id="svc-audio-compress-enabled",
+                            )
+                            gr.HTML('<div id="svc-audio-compress-status"></div>')
+                        with gr.Column():
+                            audio_compress_ratio = gr.Slider(
+                                label="音频上传目标压缩比例（%，质量优先）",
+                                minimum=1,
+                                maximum=100,
+                                value=20,
+                                step=1,
+                                elem_id="svc-audio-compress-ratio",
+                            )
                     vc_submit = gr.Button("音频转换", variant="primary")
                 with gr.TabItem("文字转音频"):
                     text2tts=gr.Textbox(label="在此输入要转译的文字。注意，使用该功能建议打开F0预测，不然会很怪")
