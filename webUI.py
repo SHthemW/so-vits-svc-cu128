@@ -330,6 +330,7 @@ SVC_UI_JS = r"""
     pendingAudioUpload: false,
     uploadInFlight: false,
     compressedUploadBytes: 0,
+    uploadProgressTimer: null,
     parseWaveBaseline: "",
     parseObserver: null,
     parseTimer: null,
@@ -348,72 +349,48 @@ SVC_UI_JS = r"""
     return `上传中: ${percent}% (${loadedText}，压缩后 ${formatBytes(expected)})`;
   }
 
-  function parseXhrHeaders(rawHeaders) {
-    const headers = new Headers();
-    String(rawHeaders || "").trim().split(/[\r\n]+/).forEach((line) => {
-      const index = line.indexOf(":");
-      if (index <= 0) return;
-      headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
-    });
-    return headers;
+  function nativeUploadPercent() {
+    const cssValue = document.documentElement.style.getPropertyValue("--upload-progress-width");
+    const cssPercent = Number.parseFloat(cssValue);
+    if (Number.isFinite(cssPercent)) return clamp(cssPercent, 0, 100);
+    const progress = audioComponentRoot()?.querySelector("progress");
+    if (progress && Number.isFinite(progress.value)) return clamp(progress.value, 0, 100);
+    return null;
   }
 
-  function applyXhrHeaders(xhr, headers, body) {
-    if (!headers) return;
-    const setHeader = (key, value) => {
-      if (body instanceof FormData && key.toLowerCase() === "content-type") return;
-      xhr.setRequestHeader(key, value);
-    };
-    if (headers instanceof Headers) {
-      headers.forEach((value, key) => setHeader(key, value));
-    } else if (Array.isArray(headers)) {
-      headers.forEach(([key, value]) => setHeader(key, value));
-    } else {
-      Object.entries(headers).forEach(([key, value]) => setHeader(key, value));
+  function startUploadProgressWatch() {
+    stopUploadProgressWatch();
+    document.documentElement.style.setProperty("--upload-progress-width", "0%");
+    let lastPercent = -1;
+    compressionState.uploadProgressTimer = window.setInterval(() => {
+      const percent = nativeUploadPercent();
+      if (percent === null || Math.round(percent) === Math.round(lastPercent)) return;
+      lastPercent = percent;
+      const total = compressionState.compressedUploadBytes;
+      const loaded = total ? Math.round(total * percent / 100) : 0;
+      logCompressionStep(uploadProgressMessage(loaded, total));
+    }, 200);
+  }
+
+  function stopUploadProgressWatch() {
+    if (compressionState.uploadProgressTimer) {
+      window.clearInterval(compressionState.uploadProgressTimer);
+      compressionState.uploadProgressTimer = null;
     }
-  }
-
-  function fetchWithUploadProgress(input, init) {
-    const body = init && Object.prototype.hasOwnProperty.call(init, "body") ? init.body : null;
-    if (!body) return originalFetch(input, init);
-
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open(requestMethod(input, init), requestUrl(input), true);
-      xhr.withCredentials = Boolean(init && init.credentials === "include");
-      applyXhrHeaders(xhr, init && init.headers, body);
-
-      xhr.upload.onprogress = (event) => {
-        const total = event.lengthComputable ? event.total : compressionState.compressedUploadBytes;
-        logCompressionStep(uploadProgressMessage(event.loaded || 0, total));
-      };
-      xhr.onload = () => {
-        resolve(new Response(xhr.responseText, {
-          status: xhr.status,
-          statusText: xhr.statusText,
-          headers: parseXhrHeaders(xhr.getAllResponseHeaders()),
-        }));
-      };
-      xhr.onerror = () => reject(new TypeError("上传请求失败"));
-      xhr.ontimeout = () => reject(new TypeError("上传请求超时"));
-      xhr.onabort = () => reject(new DOMException("上传请求已取消", "AbortError"));
-      if (init && init.signal) {
-        init.signal.addEventListener("abort", () => xhr.abort(), { once: true });
-      }
-      xhr.send(body);
-    });
   }
 
   async function fetchTrackedAudioUpload(input, init) {
     if (!compressionState.uploadInFlight) {
       compressionState.uploadInFlight = true;
       logCompressionStep(uploadProgressMessage(0, compressionState.compressedUploadBytes));
+      startUploadProgressWatch();
     }
     try {
-      const response = await fetchWithUploadProgress(input, init);
+      const response = await originalFetch(input, init);
       if (compressionState.pendingAudioUpload) {
         compressionState.pendingAudioUpload = false;
         compressionState.uploadInFlight = false;
+        stopUploadProgressWatch();
         if (response.ok) {
           logCompressionStep(`上传完成: 压缩后 ${formatBytes(compressionState.compressedUploadBytes)}`);
           beginAudioParseWatch();
@@ -425,6 +402,7 @@ SVC_UI_JS = r"""
     } catch (error) {
       compressionState.pendingAudioUpload = false;
       compressionState.uploadInFlight = false;
+      stopUploadProgressWatch();
       logCompressionStep(`上传失败: ${error.message || error}`);
       throw error;
     }
@@ -815,6 +793,7 @@ SVC_UI_JS = r"""
 
     const ratio = clamp(numericValue("svc-audio-compress-ratio", 20), 1, 100);
     stopAudioParseWatch();
+    stopUploadProgressWatch();
     compressionState.pendingAudioUpload = false;
     compressionState.uploadInFlight = false;
     logCompressionStep(`压缩中: 目标比例 ${ratio}%`);
