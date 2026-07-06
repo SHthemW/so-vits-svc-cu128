@@ -327,19 +327,14 @@ SVC_UI_JS = r"""
 
   const compressionState = {
     initialized: false,
-    pendingAudioUpload: false,
     uploadInFlight: false,
     compressedUploadBytes: 0,
     uploadProgressTimer: null,
+    uploadCompleteLogged: false,
     parseWaveBaseline: "",
     parseObserver: null,
     parseTimer: null,
   };
-
-  function isLikelyUploadRequest(input, init) {
-    return requestMethod(input, init).toUpperCase() === "POST"
-      && /\/upload(\/|\?|$)/.test(requestUrl(input));
-  }
 
   function uploadProgressMessage(loaded, total) {
     const expected = compressionState.compressedUploadBytes || total || 0;
@@ -361,14 +356,32 @@ SVC_UI_JS = r"""
   function startUploadProgressWatch() {
     stopUploadProgressWatch();
     document.documentElement.style.setProperty("--upload-progress-width", "0%");
+    compressionState.uploadInFlight = true;
+    compressionState.uploadCompleteLogged = false;
     let lastPercent = -1;
+    const startedAt = Date.now();
+    logCompressionStep(uploadProgressMessage(0, compressionState.compressedUploadBytes));
     compressionState.uploadProgressTimer = window.setInterval(() => {
+      const currentWaveformSignature = waveformSignature();
+      if (currentWaveformSignature && currentWaveformSignature !== compressionState.parseWaveBaseline) {
+        markUploadComplete();
+        return;
+      }
+      if (Date.now() - startedAt > 120000) {
+        compressionState.uploadInFlight = false;
+        stopUploadProgressWatch();
+        logCompressionStep("上传状态未知，请查看上传控件");
+        return;
+      }
       const percent = nativeUploadPercent();
       if (percent === null || Math.round(percent) === Math.round(lastPercent)) return;
       lastPercent = percent;
       const total = compressionState.compressedUploadBytes;
       const loaded = total ? Math.round(total * percent / 100) : 0;
       logCompressionStep(uploadProgressMessage(loaded, total));
+      if (percent >= 99.5 && Date.now() - startedAt > 300) {
+        markUploadComplete();
+      }
     }, 200);
   }
 
@@ -379,40 +392,17 @@ SVC_UI_JS = r"""
     }
   }
 
-  async function fetchTrackedAudioUpload(input, init) {
-    if (!compressionState.uploadInFlight) {
-      compressionState.uploadInFlight = true;
-      logCompressionStep(uploadProgressMessage(0, compressionState.compressedUploadBytes));
-      startUploadProgressWatch();
-    }
-    try {
-      const response = await originalFetch(input, init);
-      if (compressionState.pendingAudioUpload) {
-        compressionState.pendingAudioUpload = false;
-        compressionState.uploadInFlight = false;
-        stopUploadProgressWatch();
-        if (response.ok) {
-          logCompressionStep(`上传完成: 压缩后 ${formatBytes(compressionState.compressedUploadBytes)}`);
-          beginAudioParseWatch();
-        } else {
-          logCompressionStep(`上传失败: ${response.status} ${response.statusText}`);
-        }
-      }
-      return response;
-    } catch (error) {
-      compressionState.pendingAudioUpload = false;
-      compressionState.uploadInFlight = false;
-      stopUploadProgressWatch();
-      logCompressionStep(`上传失败: ${error.message || error}`);
-      throw error;
-    }
+  function markUploadComplete() {
+    if (compressionState.uploadCompleteLogged) return;
+    compressionState.uploadCompleteLogged = true;
+    compressionState.uploadInFlight = false;
+    stopUploadProgressWatch();
+    logCompressionStep(`上传完成: 压缩后 ${formatBytes(compressionState.compressedUploadBytes)}`);
+    beginAudioParseWatch();
   }
 
   window.fetch = (input, init) => {
     if (shouldWrap(input, init)) return fetchWithRetry(input, init);
-    if (compressionState.pendingAudioUpload && isLikelyUploadRequest(input, init)) {
-      return fetchTrackedAudioUpload(input, init);
-    }
     return originalFetch(input, init);
   };
 
@@ -794,8 +784,8 @@ SVC_UI_JS = r"""
     const ratio = clamp(numericValue("svc-audio-compress-ratio", 20), 1, 100);
     stopAudioParseWatch();
     stopUploadProgressWatch();
-    compressionState.pendingAudioUpload = false;
     compressionState.uploadInFlight = false;
+    compressionState.uploadCompleteLogged = false;
     logCompressionStep(`压缩中: 目标比例 ${ratio}%`);
 
     try {
@@ -815,9 +805,9 @@ SVC_UI_JS = r"""
 
       compressionState.parseWaveBaseline = waveformSignature();
       compressionState.compressedUploadBytes = afterBytes;
-      compressionState.pendingAudioUpload = true;
       replaceInputFiles(input, compressedFiles);
       input.dataset.svcCompressedUpload = "1";
+      startUploadProgressWatch();
       input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
     } catch (error) {
       input.dataset.svcCompressionBypass = "1";
