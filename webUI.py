@@ -257,13 +257,6 @@ SVC_UI_CSS = """
     border-radius: 4px;
     padding: 0 4px;
 }
-
-#svc-audio-compress-status {
-    min-height: 20px;
-    color: var(--body-text-color-subdued, #57606a);
-    font-size: 13px;
-    line-height: 1.45;
-}
 """
 
 SVC_UI_JS = r"""
@@ -336,7 +329,8 @@ SVC_UI_JS = r"""
     initialized: false,
     pendingAudioUpload: false,
     uploadInFlight: false,
-    parseBaseline: "",
+    compressedUploadBytes: 0,
+    parseWaveBaseline: "",
     parseObserver: null,
     parseTimer: null,
   };
@@ -346,19 +340,83 @@ SVC_UI_JS = r"""
       && /\/upload(\/|\?|$)/.test(requestUrl(input));
   }
 
+  function uploadProgressMessage(loaded, total) {
+    const expected = compressionState.compressedUploadBytes || total || 0;
+    const denominator = total || expected;
+    const percent = denominator ? Math.min(100, Math.round((loaded / denominator) * 100)) : 0;
+    const loadedText = denominator ? `${formatBytes(Math.min(loaded, denominator))} / ${formatBytes(denominator)}` : formatBytes(loaded);
+    return `上传中: ${percent}% (${loadedText}，压缩后 ${formatBytes(expected)})`;
+  }
+
+  function parseXhrHeaders(rawHeaders) {
+    const headers = new Headers();
+    String(rawHeaders || "").trim().split(/[\r\n]+/).forEach((line) => {
+      const index = line.indexOf(":");
+      if (index <= 0) return;
+      headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
+    });
+    return headers;
+  }
+
+  function applyXhrHeaders(xhr, headers, body) {
+    if (!headers) return;
+    const setHeader = (key, value) => {
+      if (body instanceof FormData && key.toLowerCase() === "content-type") return;
+      xhr.setRequestHeader(key, value);
+    };
+    if (headers instanceof Headers) {
+      headers.forEach((value, key) => setHeader(key, value));
+    } else if (Array.isArray(headers)) {
+      headers.forEach(([key, value]) => setHeader(key, value));
+    } else {
+      Object.entries(headers).forEach(([key, value]) => setHeader(key, value));
+    }
+  }
+
+  function fetchWithUploadProgress(input, init) {
+    const body = init && Object.prototype.hasOwnProperty.call(init, "body") ? init.body : null;
+    if (!body) return originalFetch(input, init);
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(requestMethod(input, init), requestUrl(input), true);
+      xhr.withCredentials = Boolean(init && init.credentials === "include");
+      applyXhrHeaders(xhr, init && init.headers, body);
+
+      xhr.upload.onprogress = (event) => {
+        const total = event.lengthComputable ? event.total : compressionState.compressedUploadBytes;
+        logCompressionStep(uploadProgressMessage(event.loaded || 0, total));
+      };
+      xhr.onload = () => {
+        resolve(new Response(xhr.responseText, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: parseXhrHeaders(xhr.getAllResponseHeaders()),
+        }));
+      };
+      xhr.onerror = () => reject(new TypeError("上传请求失败"));
+      xhr.ontimeout = () => reject(new TypeError("上传请求超时"));
+      xhr.onabort = () => reject(new DOMException("上传请求已取消", "AbortError"));
+      if (init && init.signal) {
+        init.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+      }
+      xhr.send(body);
+    });
+  }
+
   async function fetchTrackedAudioUpload(input, init) {
     if (!compressionState.uploadInFlight) {
       compressionState.uploadInFlight = true;
-      logCompressionStep("上传中...");
+      logCompressionStep(uploadProgressMessage(0, compressionState.compressedUploadBytes));
     }
     try {
-      const response = await originalFetch(input, init);
+      const response = await fetchWithUploadProgress(input, init);
       if (compressionState.pendingAudioUpload) {
         compressionState.pendingAudioUpload = false;
         compressionState.uploadInFlight = false;
         if (response.ok) {
-          logCompressionStep("上传完成");
-          window.setTimeout(beginAudioParseWatch, 50);
+          logCompressionStep(`上传完成: 压缩后 ${formatBytes(compressionState.compressedUploadBytes)}`);
+          beginAudioParseWatch();
         } else {
           logCompressionStep(`上传失败: ${response.status} ${response.statusText}`);
         }
@@ -403,13 +461,25 @@ SVC_UI_JS = r"""
     return Number.isFinite(value) ? value : fallback;
   }
 
-  function updateCompressionStatus(message) {
-    const status = document.getElementById("svc-audio-compress-status");
-    if (status) status.textContent = message || "";
+  function setNativeValue(element, value) {
+    const prototype = element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (setter) setter.call(element, value);
+    else element.value = value;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function updateOutputMessage(message) {
+    const root = document.getElementById("svc-output-message");
+    const field = root && root.querySelector("textarea, input");
+    if (field) setNativeValue(field, message || "");
   }
 
   function logCompressionStep(message) {
-    updateCompressionStatus(message);
+    updateOutputMessage(message);
     console.info(`[SVC音频上传] ${message}`);
   }
 
@@ -424,29 +494,99 @@ SVC_UI_JS = r"""
     return document.getElementById("svc-vc-audio-input");
   }
 
-  function audioComponentFingerprint() {
-    const root = audioComponentRoot();
-    if (!root) return "";
-    const audioSources = Array.from(root.querySelectorAll("audio, source"))
-      .map((node) => node.currentSrc || node.src || "")
-      .join("|");
-    return [
-      root.textContent || "",
-      audioSources,
-      root.querySelectorAll("canvas").length,
-      root.querySelectorAll("svg").length,
-      root.querySelectorAll("a[href], button").length,
-    ].join("::");
+  function audioComponentLooksParsed() {
+    const signature = waveformSignature();
+    return Boolean(signature && signature !== compressionState.parseWaveBaseline);
   }
 
-  function audioComponentLooksParsed() {
+  function collectDomTreeNodes(root, selector) {
+    const nodes = [];
+    const visit = (node) => {
+      if (!node) return;
+      if (node.querySelectorAll) nodes.push(...node.querySelectorAll(selector));
+      const descendants = node.querySelectorAll ? Array.from(node.querySelectorAll("*")) : [];
+      for (const descendant of descendants) {
+        if (descendant.shadowRoot) visit(descendant.shadowRoot);
+      }
+    };
+    visit(root);
+    return nodes;
+  }
+
+  function waveformSignature() {
     const root = audioComponentRoot();
-    if (!root) return false;
-    const audio = root.querySelector("audio");
-    if (audio && (audio.currentSrc || audio.src || audio.readyState > 0)) return true;
-    if (root.querySelector("canvas, [class*='waveform'], [class*='wave']")) return true;
-    if (root.querySelector("a[href*='file='], a[download]")) return true;
-    return false;
+    if (!root) return "";
+    const waveformHosts = collectDomTreeNodes(root, "#waveform, [data-testid^='waveform-'], .waveform-container");
+    const scanRoots = waveformHosts.length ? waveformHosts : [root];
+    const canvasSignatures = scanRoots.flatMap((scanRoot) => collectDomTreeNodes(scanRoot, "canvas"))
+      .map(canvasRenderSignature)
+      .filter(Boolean);
+    const svgSignatures = scanRoots.flatMap((scanRoot) => collectDomTreeNodes(scanRoot, "svg"))
+      .map(svgWaveSignature)
+      .filter(Boolean);
+    const durationSignature = waveformDurationSignature(root);
+    return [...canvasSignatures, ...svgSignatures, durationSignature].filter(Boolean).join("|");
+  }
+
+  function waveformDurationSignature(root) {
+    const duration = root.querySelector("#duration");
+    const durationText = duration ? duration.textContent.trim() : "";
+    if (!durationText || durationText === "0:00") return "";
+    const waveformHost = root.querySelector("#waveform");
+    const hostBox = waveformHost && waveformHost.getBoundingClientRect();
+    if (!hostBox || hostBox.width < 40 || hostBox.height < 16) return "";
+    const shadowSize = waveformHost.shadowRoot ? waveformHost.shadowRoot.textContent.length : 0;
+    return `duration:${durationText}:${Math.round(hostBox.width)}x${Math.round(hostBox.height)}:${shadowSize}`;
+  }
+
+  function canvasRenderSignature(canvas) {
+    const box = canvas.getBoundingClientRect();
+    if (!canvas.width || !canvas.height || box.width < 40 || box.height < 16) return "";
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return "";
+    try {
+      const width = canvas.width;
+      const height = canvas.height;
+      const sampleWidth = Math.min(width, 240);
+      const sampleHeight = Math.min(height, 80);
+      const image = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+      let alphaPixels = 0;
+      let coloredPixels = 0;
+      let hash = 2166136261;
+      for (let i = 0; i < image.length; i += 16) {
+        const alpha = image[i + 3];
+        if (!alpha) continue;
+        alphaPixels += 1;
+        const r = image[i];
+        const g = image[i + 1];
+        const b = image[i + 2];
+        if (r !== 255 || g !== 255 || b !== 255) {
+          coloredPixels += 1;
+          hash ^= r + (g << 8) + (b << 16) + (alpha << 24);
+          hash = Math.imul(hash, 16777619);
+        }
+      }
+      if (coloredPixels < 8) return "";
+      return `canvas:${width}x${height}:${alphaPixels}:${coloredPixels}:${hash >>> 0}`;
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function svgWaveSignature(svg) {
+    const box = svg.getBoundingClientRect();
+    if (!box || box.width < 40 || box.height < 16) return "";
+    const shapes = Array.from(svg.querySelectorAll("path[d], polyline[points], polygon[points]"))
+      .map((node) => node.getAttribute("d") || node.getAttribute("points") || "")
+      .filter((value) => value.length > 12);
+    if (!shapes.length) return "";
+    let hash = 2166136261;
+    const joined = shapes.join("|");
+    for (let i = 0; i < joined.length; i++) {
+      hash ^= joined.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `svg:${Math.round(box.width)}x${Math.round(box.height)}:${shapes.length}:${hash >>> 0}`;
   }
 
   function stopAudioParseWatch() {
@@ -465,13 +605,12 @@ SVC_UI_JS = r"""
     logCompressionStep("音频解析中...");
     const startedAt = Date.now();
     const markDoneIfReady = () => {
-      const changed = audioComponentFingerprint() !== compressionState.parseBaseline;
-      if (changed && audioComponentLooksParsed()) {
+      if (audioComponentLooksParsed()) {
         stopAudioParseWatch();
         logCompressionStep("解析完成");
         return true;
       }
-      if (Date.now() - startedAt > 30000) {
+      if (Date.now() - startedAt > 120000) {
         stopAudioParseWatch();
         logCompressionStep("音频解析状态未知，请查看上传控件");
         return true;
@@ -665,7 +804,6 @@ SVC_UI_JS = r"""
       return;
     }
     if (!checkboxValue("svc-audio-compress-enabled")) {
-      updateCompressionStatus("");
       return;
     }
 
@@ -696,7 +834,8 @@ SVC_UI_JS = r"""
         : "";
       logCompressionStep(`压缩完成: ${formatBytes(beforeBytes)} -> ${formatBytes(afterBytes)}${sampleRateText}`);
 
-      compressionState.parseBaseline = audioComponentFingerprint();
+      compressionState.parseWaveBaseline = waveformSignature();
+      compressionState.compressedUploadBytes = afterBytes;
       compressionState.pendingAudioUpload = true;
       replaceInputFiles(input, compressedFiles);
       input.dataset.svcCompressedUpload = "1";
@@ -1232,7 +1371,6 @@ with gr.Blocks(
                                 value=False,
                                 elem_id="svc-audio-compress-enabled",
                             )
-                            gr.HTML('<div id="svc-audio-compress-status"></div>')
                         with gr.Column():
                             audio_compress_ratio = gr.Slider(
                                 label="音频上传目标压缩比例（%，质量优先）",
@@ -1253,7 +1391,7 @@ with gr.Blocks(
                     vc_submit2 = gr.Button("文字转换", variant="primary")
             with gr.Row():
                 with gr.Column():
-                    vc_output1 = gr.Textbox(label="Output Message")
+                    vc_output1 = gr.Textbox(label="Output Message", elem_id="svc-output-message")
                 with gr.Column():
                     vc_output2 = gr.Audio(label="Output Audio", interactive=False)
 
