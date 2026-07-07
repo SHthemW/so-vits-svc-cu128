@@ -7,7 +7,6 @@ import subprocess
 import sys
 import threading
 import urllib.request
-import uuid
 import zipfile
 from pathlib import Path
 from typing import Optional, Tuple
@@ -97,44 +96,6 @@ def _uploaded_name(file, path: Path) -> str:
     return Path(str(name)).name
 
 
-def _unique_target_path(target_dir: Path, name: str) -> Path:
-    dst = target_dir / name
-    if not dst.exists():
-        return dst
-
-    stem = dst.stem
-    ext = dst.suffix
-    duplicate_index = 1
-    while True:
-        candidate = target_dir / f"{stem}_{duplicate_index}{ext}"
-        if not candidate.exists():
-            return candidate
-        duplicate_index += 1
-
-
-def _copy_wav_file(src: Path, target_dir: Path, name: str):
-    dst = _unique_target_path(target_dir, name)
-    shutil.copy2(src, dst)
-
-
-def _write_wav_from_zip(zf: zipfile.ZipFile, info: zipfile.ZipInfo, target_dir: Path, name: str):
-    dst = _unique_target_path(target_dir, name)
-    with zf.open(info, "r") as source, open(dst, "wb") as target:
-        shutil.copyfileobj(source, target, length=1024 * 1024)
-
-
-def _dataset_upload_success(message: str):
-    dataset_dir = str(ROOT / "dataset_raw")
-    _save_dataset_dir(dataset_dir)
-    return dataset_dir, f"""
-<div class="svc-alert svc-alert--success">
-  <div class="svc-title">上传完成</div>
-  <div>{message}</div>
-</div>
-{describe_dataset()}
-""", None, ""
-
-
 def describe_dataset() -> str:
     dataset_root = ROOT / "dataset_raw"
     if not dataset_root.exists():
@@ -145,8 +106,7 @@ def describe_dataset() -> str:
 </div>
 """
 
-    with os.scandir(dataset_root) as entries:
-        speakers = sorted((entry for entry in entries if entry.is_dir()), key=lambda entry: entry.name)
+    speakers = [d for d in sorted(dataset_root.iterdir()) if d.is_dir()]
     if not speakers:
         return """
 <div class="svc-card">
@@ -158,8 +118,7 @@ def describe_dataset() -> str:
     rows = []
     total = 0
     for speaker in speakers:
-        with os.scandir(speaker.path) as files:
-            count = sum(1 for file in files if file.is_file() and Path(file.name).suffix.lower() in AUDIO_EXTENSIONS)
+        count = sum(1 for p in speaker.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS)
         total += count
         rows.append(
             "<div class='svc-data-row'>"
@@ -203,36 +162,12 @@ def upload_dataset_files(files, speaker_name, progress=gr.Progress()):
         files = [files]
 
     wav_items = []
-    zip_items = []
     total = len(files)
 
     for index, file in enumerate(files, start=1):
         progress((index - 1) / max(total * 2, 1), desc=f"校验文件 {index}/{total}")
         src = _uploaded_path(file)
         name = _uploaded_name(file, src)
-
-        if zipfile.is_zipfile(src):
-            try:
-                with zipfile.ZipFile(src, "r") as zf:
-                    zip_wavs = []
-                    for info in zf.infolist():
-                        if info.is_dir():
-                            continue
-                        wav_name = Path(info.filename).name
-                        if not wav_name or Path(wav_name).suffix.lower() != ".wav":
-                            continue
-                        error = _filename_error(wav_name, f"WAV 文件名 {wav_name}")
-                        if error:
-                            return _dataset_upload_error(error)
-                        zip_wavs.append((info, wav_name))
-            except zipfile.BadZipFile:
-                return _dataset_upload_error(f"{name} 不是有效的 wav 文件。")
-
-            if not zip_wavs:
-                return _dataset_upload_error(f"{name} 中没有可导入的 .wav 文件。")
-            zip_items.append((src, zip_wavs))
-            continue
-
         if src.suffix.lower() != ".wav":
             return _dataset_upload_error(f"{name} 不是 .wav 文件。这里只允许上传 wav 文件。")
         error = _filename_error(name, f"WAV 文件名 {name}")
@@ -240,8 +175,7 @@ def upload_dataset_files(files, speaker_name, progress=gr.Progress()):
             return _dataset_upload_error(error)
         wav_items.append((src, name))
 
-    total_wavs = len(wav_items) + sum(len(items) for _, items in zip_items)
-    if total_wavs == 0:
+    if not wav_items:
         return _dataset_upload_error("请选择一个或多个 .wav 文件。")
 
     dataset_root = ROOT / "dataset_raw"
@@ -249,291 +183,31 @@ def upload_dataset_files(files, speaker_name, progress=gr.Progress()):
     target_dir = dataset_root / speaker
     target_dir.mkdir(parents=True, exist_ok=True)
     for index, (src, name) in enumerate(wav_items, start=1):
-        progress((total + copied) / max(total + total_wavs, 1), desc=f"复制文件 {copied + 1}/{total_wavs}")
-        _copy_wav_file(src, target_dir, name)
+        progress((total + index - 1) / max(total * 2, 1), desc=f"复制文件 {index}/{len(wav_items)}")
+        dst = target_dir / name
+        if dst.exists():
+            stem = dst.stem
+            ext = dst.suffix
+            duplicate_index = 1
+            while True:
+                candidate = target_dir / f"{stem}_{duplicate_index}{ext}"
+                if not candidate.exists():
+                    dst = candidate
+                    break
+                duplicate_index += 1
+        shutil.copy2(src, dst)
         copied += 1
 
-    for src, zip_wavs in zip_items:
-        with zipfile.ZipFile(src, "r") as zf:
-            for info, name in zip_wavs:
-                progress((total + copied) / max(total + total_wavs, 1), desc=f"复制文件 {copied + 1}/{total_wavs}")
-                _write_wav_from_zip(zf, info, target_dir, name)
-                copied += 1
-
     progress(1, desc="上传完成")
-    return _dataset_upload_success(f"已导入 {copied} 个 WAV 文件到 dataset_raw/{speaker}/。")
-
-
-def register_dataset_transfer_routes(fastapi_app):
-    from fastapi import HTTPException, Query, Request
-    from fastapi.responses import HTMLResponse, JSONResponse
-
-    if getattr(fastapi_app.state, "svc_dataset_transfer_routes", False):
-        return
-    fastapi_app.state.svc_dataset_transfer_routes = True
-
-    upload_root = ROOT / ".cache" / "dataset_uploads"
-
-    def _validate_upload_id(upload_id: str) -> str:
-        try:
-            return str(uuid.UUID(upload_id))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="upload_id 无效")
-
-    def _validate_upload_target(speaker_name: str, filename: str):
-        speaker, error = _validate_speaker_name(speaker_name)
-        if error:
-            raise HTTPException(status_code=400, detail=error)
-
-        name = Path(filename).name
-        if Path(name).suffix.lower() != ".wav":
-            raise HTTPException(status_code=400, detail=f"{name} 不是 .wav 文件")
-        error = _filename_error(name, f"WAV 文件名 {name}")
-        if error:
-            raise HTTPException(status_code=400, detail=error)
-        return speaker, name
-
-    @fastapi_app.get("/svc-dataset-transfer", response_class=HTMLResponse)
-    @fastapi_app.get("/svc-dataset-transfer/", response_class=HTMLResponse)
-    async def dataset_transfer_page():
-        return HTMLResponse(_dataset_transfer_page())
-
-    @fastapi_app.get("/svc-dataset-transfer/status")
-    @fastapi_app.get("/svc-dataset-transfer/status/")
-    async def dataset_transfer_status():
-        return JSONResponse({"html": describe_dataset()})
-
-    @fastapi_app.post("/svc-dataset-transfer/chunk")
-    @fastapi_app.post("/svc-dataset-transfer/chunk/")
-    async def dataset_transfer_chunk(
-        request: Request,
-        upload_id: str = Query(...),
-        speaker: str = Query(...),
-        filename: str = Query(...),
-        file_size: int = Query(..., ge=0),
-        file_index: int = Query(..., ge=0),
-        total_files: int = Query(..., ge=1),
-        chunk_index: int = Query(..., ge=0),
-        total_chunks: int = Query(..., ge=1),
-        offset: int = Query(..., ge=0),
-    ):
-        upload_id = _validate_upload_id(upload_id)
-        speaker, name = _validate_upload_target(speaker, filename)
-
-        body = await request.body()
-        if offset + len(body) > file_size:
-            raise HTTPException(status_code=400, detail="分片大小超过文件大小")
-        if chunk_index >= total_chunks:
-            raise HTTPException(status_code=400, detail="分片编号无效")
-
-        part_dir = upload_root / upload_id
-        part_dir.mkdir(parents=True, exist_ok=True)
-        part_path = part_dir / f"{file_index:06d}_{name}.part"
-
-        mode = "r+b" if part_path.exists() else "w+b"
-        with open(part_path, mode) as f:
-            f.seek(offset)
-            f.write(body)
-
-        done_file = chunk_index + 1 == total_chunks
-        imported_name = None
-        if done_file:
-            actual_size = part_path.stat().st_size
-            if actual_size != file_size:
-                raise HTTPException(status_code=400, detail=f"{name} 接收不完整")
-
-            target_dir = ROOT / "dataset_raw" / speaker
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target_path = _unique_target_path(target_dir, name)
-            shutil.move(str(part_path), str(target_path))
-            imported_name = target_path.name
-
-            if not any(part_dir.iterdir()):
-                part_dir.rmdir()
-
-            _save_dataset_dir(str(ROOT / "dataset_raw"))
-
-        return JSONResponse(
-            {
-                "ok": True,
-                "done_file": done_file,
-                "imported_name": imported_name,
-                "file_index": file_index,
-                "total_files": total_files,
-            }
-        )
-
-
-def _dataset_transfer_page() -> str:
-    return r"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>So-VITS-SVC 数据集高速上传</title>
-  <style>
-    body { margin: 0; font-family: Arial, sans-serif; background: #f6f8fa; color: #1f2328; }
-    main { max-width: 860px; margin: 32px auto; padding: 0 18px; }
-    section { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 18px; margin-bottom: 14px; }
-    h1 { font-size: 22px; margin: 0 0 14px; }
-    label { display: block; font-weight: 700; margin: 12px 0 6px; }
-    input[type="text"], input[type="file"] { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; }
-    button { margin-top: 14px; padding: 9px 14px; border: 0; border-radius: 6px; background: #16a34a; color: #fff; font-weight: 700; cursor: pointer; }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    progress { width: 100%; height: 18px; margin-top: 12px; }
-    .muted { color: #57606a; font-size: 13px; line-height: 1.6; }
-    .log { height: 180px; overflow: auto; white-space: pre-wrap; background: #0f172a; color: #e5e7eb; border-radius: 6px; padding: 10px; font: 12px Consolas, monospace; }
-  </style>
-</head>
-<body>
-  <main>
-    <section>
-      <h1>数据集高速上传</h1>
-      <div class="muted">这里不使用 Gradio 文件上传。文件会按 8MB 分片直接传到服务端，并写入 dataset_raw/数据集名称/。</div>
-      <label for="speaker">数据集名称</label>
-      <input id="speaker" type="text" placeholder="例如 Ya">
-      <label for="files">WAV 文件</label>
-      <input id="files" type="file" accept=".wav" multiple>
-      <button id="start">开始上传</button>
-      <progress id="progress" value="0" max="100"></progress>
-      <div id="summary" class="muted"></div>
-    </section>
-    <section>
-      <div class="log" id="log"></div>
-    </section>
-  </main>
-  <script>
-    const chunkSize = 4 * 1024 * 1024;
-    const requestTimeoutMs = 120000;
-    const startBtn = document.getElementById("start");
-    const filesInput = document.getElementById("files");
-    const speakerInput = document.getElementById("speaker");
-    const progress = document.getElementById("progress");
-    const summary = document.getElementById("summary");
-    const logBox = document.getElementById("log");
-
-    function log(line) {
-      logBox.textContent += line + "\n";
-      logBox.scrollTop = logBox.scrollHeight;
-    }
-
-    function sleep(ms) {
-      return new Promise((resolve) => setTimeout(resolve, ms));
-    }
-
-    function compactServerText(text) {
-      return text.replace(/\s+/g, " ").trim().slice(0, 300);
-    }
-
-    async function readJsonResponse(response) {
-      const contentType = response.headers.get("content-type") || "";
-      const text = await response.text();
-      if (!contentType.toLowerCase().includes("application/json")) {
-        const preview = compactServerText(text);
-        throw new Error(
-          `服务器返回了非 JSON 响应 (${response.status} ${response.statusText})` +
-          (preview ? `: ${preview}` : "")
-        );
-      }
-      try {
-        return JSON.parse(text);
-      } catch (error) {
-        throw new Error(`服务器 JSON 响应解析失败: ${error.message}`);
-      }
-    }
-
-    async function uploadChunk(params, blob) {
-      const query = new URLSearchParams(params);
-      let lastError = null;
-      for (let attempt = 1; attempt <= 4; attempt++) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
-        try {
-          const response = await fetch("/svc-dataset-transfer/chunk?" + query.toString(), {
-            method: "POST",
-            headers: { "Content-Type": "application/octet-stream" },
-            body: blob,
-            signal: controller.signal,
-          });
-          const data = await readJsonResponse(response);
-          if (!response.ok) {
-            throw new Error(data.detail || `${response.status} ${response.statusText}`);
-          }
-          return data;
-        } catch (error) {
-          lastError = error.name === "AbortError"
-            ? new Error("请求超时，公网连接可能不稳定")
-            : error;
-          log(`分片上传失败，重试 ${attempt}/4: ${lastError.message}`);
-          await sleep(800 * attempt);
-        } finally {
-          clearTimeout(timeout);
-        }
-      }
-      throw lastError;
-    }
-
-    startBtn.addEventListener("click", async () => {
-      const speaker = speakerInput.value.trim();
-      const files = Array.from(filesInput.files || []);
-      if (!speaker) return alert("请填写数据集名称");
-      if (!files.length) return alert("请选择 WAV 文件");
-      if (!files.every((file) => /\.wav$/i.test(file.name))) return alert("只允许上传 .wav 文件");
-
-      startBtn.disabled = true;
-      progress.value = 0;
-      logBox.textContent = "";
-
-      const uploadId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random();
-      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-      let uploadedBytes = 0;
-      let imported = 0;
-
-      try {
-        for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
-          const file = files[fileIndex];
-          const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
-          log(`开始: ${file.name} (${fileIndex + 1}/${files.length})`);
-
-          for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-            const offset = chunkIndex * chunkSize;
-            const end = Math.min(offset + chunkSize, file.size);
-            const blob = file.slice(offset, end);
-            const result = await uploadChunk({
-              upload_id: uploadId,
-              speaker,
-              filename: file.name,
-              file_size: file.size,
-              file_index: fileIndex,
-              total_files: files.length,
-              chunk_index: chunkIndex,
-              total_chunks: totalChunks,
-              offset,
-            }, blob);
-
-            uploadedBytes += blob.size;
-            progress.value = totalBytes ? (uploadedBytes / totalBytes) * 100 : 100;
-            summary.textContent = `上传中: ${Math.round(progress.value)}%`;
-
-            if (result.done_file) {
-              imported += 1;
-              log(`完成: ${result.imported_name || file.name}`);
-            }
-          }
-        }
-        progress.value = 100;
-        summary.textContent = `上传完成: ${imported} 个 WAV 文件`;
-        log("全部完成。回到 WebUI 后点击“刷新当前数据集”查看最新状态。");
-      } catch (error) {
-        summary.textContent = "上传失败";
-        log("错误: " + error.message);
-      } finally {
-        startBtn.disabled = false;
-      }
-    });
-  </script>
-</body>
-</html>"""
+    dataset_dir = str(dataset_root)
+    _save_dataset_dir(dataset_dir)
+    return dataset_dir, f"""
+<div class="svc-alert svc-alert--success">
+  <div class="svc-title">上传完成</div>
+  <div>已导入 {copied} 个 WAV 文件到 dataset_raw/{speaker}/。</div>
+</div>
+{describe_dataset()}
+""", None, ""
 _procs: dict = {
     "download": None,
     "resample": None,
@@ -617,13 +291,11 @@ def check_environment(dataset_dir) -> str:
     lines.append("\n═══ 数据目录 ═══\n")
     dataset_raw = Path(dataset_dir) if dataset_dir else ROOT / "dataset_raw"
     if dataset_raw.exists():
-        with os.scandir(dataset_raw) as entries:
-            speakers = sorted((entry for entry in entries if entry.is_dir()), key=lambda entry: entry.name)
+        speakers = [d.name for d in dataset_raw.iterdir() if d.is_dir()]
         if speakers:
             for spk in speakers:
-                with os.scandir(spk.path) as files:
-                    wav_count = sum(1 for file in files if file.is_file() and file.name.lower().endswith(".wav"))
-                lines.append(f"[OK] {dataset_raw}/{spk.name}/ — {wav_count} 个 WAV 文件")
+                wavs = list((dataset_raw / spk).glob("*.wav"))
+                lines.append(f"[OK] {dataset_raw}/{spk}/ — {len(wavs)} 个 WAV 文件")
         else:
             lines.append(f"[!!] {dataset_raw}/ 存在但没有说话人子目录")
     else:
@@ -813,10 +485,8 @@ def _launch(key: str, args: list, clear_log: bool = True) -> str:
 
     cmd = [PYTHON] + args
     with _lock:
-        command_line = f"[命令] {' '.join(cmd)}"
-        _log_buffers[key].append(command_line)
+        _log_buffers[key].append(f"[命令] {' '.join(cmd)}")
         _log_buffers[key].append("")
-    print(f"[{key}] {command_line}", flush=True)
 
     proc = subprocess.Popen(
         cmd,
@@ -846,7 +516,6 @@ def _launch(key: str, args: list, clear_log: bool = True) -> str:
                     _log_buffers[key].append(clean)
                     if len(_log_buffers[key]) > _MAX_LOG_LINES:
                         _log_buffers[key] = _log_buffers[key][-_MAX_LOG_LINES:]
-                    print(f"[{key}] {clean}", flush=True)
                 # 解析进度
                 m = _PROGRESS_RE.search(stripped)
                 if m:
@@ -862,13 +531,10 @@ def _launch(key: str, args: list, clear_log: bool = True) -> str:
             if rc == 0:
                 _progress[key] = 1.0
                 _log_buffers[key].append("")
-                final_line = f"[完成] 进程正常退出 (返回码 0)"
-                _log_buffers[key].append(final_line)
+                _log_buffers[key].append(f"[完成] 进程正常退出 (返回码 0)")
             else:
                 _log_buffers[key].append("")
-                final_line = f"[异常] 进程退出，返回码: {rc}"
-                _log_buffers[key].append(final_line)
-        print(f"[{key}] {final_line}", flush=True)
+                _log_buffers[key].append(f"[异常] 进程退出，返回码: {rc}")
 
     threading.Thread(target=_reader, daemon=True).start()
     return f"[{key}] 已启动 (PID {proc.pid})"
@@ -953,31 +619,22 @@ def start_resample(dataset_dir, skip_loudnorm, num_processes):
     if not in_path.is_dir():
         return f"[错误] 路径不是目录: {in_path}"
 
-    with os.scandir(in_path) as entries:
-        dirs = []
-        top_wav_count = 0
-        for entry in entries:
-            if entry.is_dir():
-                dirs.append(entry)
-            elif entry.is_file() and entry.name.lower().endswith(".wav"):
-                top_wav_count += 1
-    speakers = sorted(dirs, key=lambda entry: entry.name)
+    speakers = [d for d in in_path.iterdir() if d.is_dir()]
+    top_wavs = list(in_path.glob("*.wav"))
 
-    if not speakers and top_wav_count == 0:
+    if not speakers and not top_wavs:
         return f"[错误] 目录中既没有子文件夹也没有 .wav 文件: {in_path}"
 
     actual_in_path = in_path
-    if not speakers and top_wav_count > 0:
+    if not speakers and top_wavs:
         speaker_name = in_path.name
         dataset_raw = ROOT / "dataset_raw" / speaker_name
         dataset_raw.mkdir(parents=True, exist_ok=True)
         import shutil
         copied = 0
-        with os.scandir(in_path) as entries:
-            for wav in entries:
-                if wav.is_file() and wav.name.lower().endswith(".wav"):
-                    shutil.copy2(wav.path, str(dataset_raw / wav.name))
-                    copied += 1
+        for wav in top_wavs:
+            shutil.copy2(str(wav), str(dataset_raw / wav.name))
+            copied += 1
         actual_in_path = ROOT / "dataset_raw"
         with _lock:
             _log_buffers["resample"].clear()
@@ -988,8 +645,7 @@ def start_resample(dataset_dir, skip_loudnorm, num_processes):
     else:
         total_wavs = 0
         for spk in speakers:
-            with os.scandir(spk.path) as files:
-                total_wavs += sum(1 for file in files if file.is_file() and file.name.lower().endswith(".wav"))
+            total_wavs += len(list(spk.glob("*.wav")))
         if total_wavs == 0:
             return f"[错误] 子文件夹中没有 .wav 文件\n期望结构: {in_path}/<说话人名称>/*.wav"
         with _lock:
@@ -1286,7 +942,7 @@ def build_training_tab():
   <div class="svc-note">
     <div class="svc-note-line">基于大家的反馈，现在整合包采用了全新的音频上传规范，以防止文件夹混淆。</div>
     <div class="svc-note-line">Master 版本：需要先在电脑里手动建好 <code>dataset_raw/说话人名称/音频.wav</code> 这样的文件夹，再让 WebUI 使用这个文件夹。</div>
-    <div class="svc-note-line">当前整合包：点击下方上传器选择 WAV 文件并填写数据集名称。WebUI 会自动创建 <code>dataset_raw/数据集名称/</code>，再把上传的音频放进去。</div>
+    <div class="svc-note-line">当前整合包：直接在这里选择 WAV 文件，并在下方填写数据集名称。WebUI 会自动创建 <code>dataset_raw/数据集名称/</code>，再把上传的音频放进去。</div>
     <div class="svc-note-line">简单来说，Master 版本适合已经熟悉文件夹整理的用户；当前整合包只需要上传文件和填写名称，更不容易把多个数据集放错位置。</div>
   </div>
 </div>
@@ -1296,18 +952,23 @@ def build_training_tab():
 </div>
 """)
     dataset_status = gr.HTML(value=describe_dataset())
-    with gr.Row():
-        upload_transfer_btn = gr.Button("打开数据集上传器", variant="primary")
-        dataset_refresh_btn = gr.Button("刷新当前数据集")
-    upload_transfer_btn.click(
-        None,
-        inputs=None,
-        outputs=None,
-        js="() => window.open(new URL('/svc-dataset-transfer/', window.location.href).href, '_blank')",
-        queue=False,
-        show_api=False,
+    upload_dataset = gr.File(
+        label="上传 WAV 文件",
+        file_count="multiple",
+        file_types=[".wav"],
+        type="filepath",
     )
-    dataset_refresh_btn.click(describe_dataset, [], [dataset_status], queue=False)
+    upload_dataset_name = gr.Textbox(
+        label="数据集名称",
+        placeholder="例如 Ya",
+        max_lines=1,
+    )
+    upload_dataset_btn = gr.Button("上传到 dataset_raw", variant="primary")
+    upload_dataset_btn.click(
+        upload_dataset_files,
+        [upload_dataset, upload_dataset_name],
+        [dataset_dir, dataset_status, upload_dataset, upload_dataset_name],
+    )
 
     _refresh_events = []
 
@@ -1321,7 +982,7 @@ def build_training_tab():
         with gr.Row():
             env_check_btn = gr.Button("检查环境", variant="primary")
         env_check_output = gr.Textbox(label="检查结果", lines=18, max_lines=30, interactive=False)
-        env_check_btn.click(check_environment, [dataset_dir], [env_check_output], queue=False)
+        env_check_btn.click(check_environment, [dataset_dir], [env_check_output])
 
         gr.Markdown("---")
         gr.Markdown("**下载缺失的模型文件** (从 HuggingFace 下载，需要网络连接)")
@@ -1428,8 +1089,8 @@ def build_training_tab():
             cfg_save_btn = gr.Button("保存配置", variant="primary")
             cfg_msg = gr.Textbox(label="提示", interactive=False, scale=2)
 
-        cfg_load_btn.click(read_train_config, [], [cfg_batch, cfg_epochs, cfg_keep, cfg_fp16], queue=False)
-        cfg_save_btn.click(write_train_config, [cfg_batch, cfg_epochs, cfg_keep, cfg_fp16], [cfg_msg], queue=False)
+        cfg_load_btn.click(read_train_config, [], [cfg_batch, cfg_epochs, cfg_keep, cfg_fp16])
+        cfg_save_btn.click(write_train_config, [cfg_batch, cfg_epochs, cfg_keep, cfg_fp16], [cfg_msg])
 
     # ── Step 4: Main training ────────────────────────────────────────
     with gr.Accordion("第四步：训练主模型 (train.py)", open=False):
