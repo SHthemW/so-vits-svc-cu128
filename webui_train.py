@@ -6,10 +6,11 @@ import signal
 import subprocess
 import sys
 import threading
+import tkinter as tk
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional, Tuple
+from tkinter import filedialog
 
 import gradio as gr
 import torch
@@ -54,160 +55,16 @@ def _get_webui_config_key(key: str, default=None):
     return _load_webui_config().get(key, default)
 
 
-def _public_gradio_share_enabled() -> bool:
-    value = os.environ.get("GRADIO_SHARE")
-    if value is None:
-        return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-AUDIO_EXTENSIONS = {".wav"}
-INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
-
-
-def _filename_error(name: str, label: str) -> Optional[str]:
-    if not name:
-        return f"{label}不能为空。"
-    if not name.isascii():
-        return f"{label}只能使用 ASCII 字符。"
-    if any(ord(ch) < 32 or ch in INVALID_FILENAME_CHARS for ch in name):
-        return f"{label}不能包含控制字符或这些字符: <>:\"/\\|?*"
-    if name in {".", ".."}:
-        return f"{label}不能是 . 或 ..。"
-    if name != name.strip(" ."):
-        return f"{label}不能以空格或点开头/结尾。"
-    return None
-
-
-def _validate_speaker_name(name: str) -> Tuple[Optional[str], Optional[str]]:
-    speaker = (name or "").strip()
-    error = _filename_error(speaker, "数据集名称")
-    if error:
-        return None, error
-    return speaker, None
-
-
-def _uploaded_path(file) -> Path:
-    return Path(getattr(file, "name", file))
-
-
-def _uploaded_name(file, path: Path) -> str:
-    name = getattr(file, "orig_name", None) or getattr(file, "name", None) or path.name
-    return Path(str(name)).name
-
-
-def describe_dataset() -> str:
-    dataset_root = ROOT / "dataset_raw"
-    if not dataset_root.exists():
-        return """
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="font-weight:700;margin-bottom:6px">当前数据集</div>
-  <div>dataset_raw/ 不存在。上传数据集后会自动创建。</div>
-</div>
-"""
-
-    speakers = [d for d in sorted(dataset_root.iterdir()) if d.is_dir()]
-    if not speakers:
-        return """
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="font-weight:700;margin-bottom:6px">当前数据集</div>
-  <div>dataset_raw/ 存在，但还没有说话人子目录。</div>
-</div>
-"""
-
-    rows = []
-    total = 0
-    for speaker in speakers:
-        count = sum(1 for p in speaker.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS)
-        total += count
-        rows.append(
-            "<div style='display:flex;justify-content:space-between;gap:16px;padding:6px 0;border-top:1px solid #edf0f4'>"
-            f"<span>{speaker.name}</span><span style='font-variant-numeric:tabular-nums'>{count} WAV</span>"
-            "</div>"
-        )
-    body = "".join(rows)
-    return f"""
-<div style="padding:14px;border:1px solid #dadde3;border-radius:8px;background:#fafafa">
-  <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:8px">
-    <div style="font-weight:700">当前数据集</div>
-    <div style="color:#5b6472;font-size:13px">dataset_raw/</div>
-  </div>
-  {body}
-  <div style="margin-top:10px;color:#303846;font-weight:600">合计: {len(speakers)} 个说话人，{total} 个 WAV 文件</div>
-</div>
-"""
-
-
-def _dataset_upload_error(message: str):
-    return str(ROOT / "dataset_raw"), f"""
-<div style="padding:14px;border:1px solid #f0b8b8;border-radius:8px;background:#fff7f7">
-  <div style="font-weight:700;color:#a40000;margin-bottom:6px">上传失败</div>
-  <div>{message}</div>
-</div>
-{describe_dataset()}
-""", gr.update(), gr.update()
-
-
-def upload_dataset_files(files, speaker_name, progress=gr.Progress()):
-    progress(0, desc="准备上传")
-
-    if not files:
-        return _dataset_upload_error("请选择一个或多个 .wav 文件。")
-
-    speaker, error = _validate_speaker_name(speaker_name)
-    if error:
-        return _dataset_upload_error(error)
-
-    if not isinstance(files, list):
-        files = [files]
-
-    wav_items = []
-    total = len(files)
-
-    for index, file in enumerate(files, start=1):
-        progress((index - 1) / max(total * 2, 1), desc=f"校验文件 {index}/{total}")
-        src = _uploaded_path(file)
-        name = _uploaded_name(file, src)
-        if src.suffix.lower() != ".wav":
-            return _dataset_upload_error(f"{name} 不是 .wav 文件。这里只允许上传 wav 文件。")
-        error = _filename_error(name, f"WAV 文件名 {name}")
-        if error:
-            return _dataset_upload_error(error)
-        wav_items.append((src, name))
-
-    if not wav_items:
-        return _dataset_upload_error("请选择一个或多个 .wav 文件。")
-
-    dataset_root = ROOT / "dataset_raw"
-    copied = 0
-    target_dir = dataset_root / speaker
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for index, (src, name) in enumerate(wav_items, start=1):
-        progress((total + index - 1) / max(total * 2, 1), desc=f"复制文件 {index}/{len(wav_items)}")
-        dst = target_dir / name
-        if dst.exists():
-            stem = dst.stem
-            ext = dst.suffix
-            duplicate_index = 1
-            while True:
-                candidate = target_dir / f"{stem}_{duplicate_index}{ext}"
-                if not candidate.exists():
-                    dst = candidate
-                    break
-                duplicate_index += 1
-        shutil.copy2(src, dst)
-        copied += 1
-
-    progress(1, desc="上传完成")
-    dataset_dir = str(dataset_root)
-    _save_dataset_dir(dataset_dir)
-    return dataset_dir, f"""
-<div style="padding:14px;border:1px solid #b8dec4;border-radius:8px;background:#f6fff8;margin-bottom:12px">
-  <div style="font-weight:700;color:#176b2c;margin-bottom:6px">上传完成</div>
-  <div>已导入 {copied} 个 WAV 文件到 dataset_raw/{speaker}/。</div>
-</div>
-{describe_dataset()}
-""", None, ""
+def browse_dataset_dir():
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    folder = filedialog.askdirectory(title="选择数据集目录")
+    root.destroy()
+    if folder:
+        _save_dataset_dir(folder)
+        return folder
+    return _get_saved_dataset_dir()
 _procs: dict = {
     "download": None,
     "resample": None,
@@ -935,31 +792,17 @@ def build_training_tab():
                 "按顺序完成以下各步骤。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
 
-    dataset_dir = gr.Textbox(value=str(ROOT / "dataset_raw"), visible=False)
-    gr.HTML("""
-<div style="padding:12px 14px;border:1px solid #f0c36d;border-radius:8px;background:#fff8e5;margin-bottom:10px">
-  <div style="font-weight:700;color:#8a5200;margin-bottom:4px">数据集上传要求</div>
-  <div>只允许上传 <code>.wav</code> 文件。下方填写的数据集名称会作为 <code>dataset_raw/</code> 下的新文件夹名；数据集名称和 wav 文件名都只能使用 ASCII 字符。</div>
-</div>
-""")
-    dataset_status = gr.HTML(value=describe_dataset())
-    upload_dataset = gr.File(
-        label="上传 WAV 文件",
-        file_count="multiple",
-        file_types=[".wav"],
-        type="filepath",
-    )
-    upload_dataset_name = gr.Textbox(
-        label="数据集名称",
-        placeholder="例如 Ya",
-        max_lines=1,
-    )
-    upload_dataset_btn = gr.Button("上传到 dataset_raw", variant="primary")
-    upload_dataset_btn.click(
-        upload_dataset_files,
-        [upload_dataset, upload_dataset_name],
-        [dataset_dir, dataset_status, upload_dataset, upload_dataset_name],
-    )
+    with gr.Row():
+        dataset_dir = gr.Textbox(
+            label="数据集目录 (包含说话人子文件夹或直接包含wav的目录，留空则使用默认 dataset_raw/)",
+            placeholder="例如: D:\\my_audio\\singer1_dataset  或留空使用 dataset_raw/",
+            value=_get_saved_dataset_dir(),
+            interactive=True,
+            scale=4,
+        )
+        browse_btn = gr.Button("浏览...", scale=1)
+
+    browse_btn.click(browse_dataset_dir, [], [dataset_dir])
 
     _refresh_events = []
 
