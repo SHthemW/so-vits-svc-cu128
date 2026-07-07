@@ -1613,6 +1613,7 @@ with gr.Blocks(
     webbrowser.open("http://127.0.0.1:7860")
     emit_startup_banner("# WebUI")
     app.launch(
+        server_name="0.0.0.0",
         share=_gradio_share_enabled(),
         max_file_size=os.environ.get("SVC_MAX_FILE_SIZE", "20gb"),
     )
