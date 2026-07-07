@@ -111,7 +111,6 @@ if torch.cuda.is_available():
         device_name = torch.cuda.get_device_properties(i).name
         cuda[f"CUDA:{i} {device_name}"] = f"cuda:{i}"
 
-
 SVC_UI_CSS = """
 .svc-card,
 .svc-alert {
@@ -209,15 +208,6 @@ SVC_UI_CSS = """
     font-variant-numeric: tabular-nums;
 }
 
-.svc-note {
-    display: grid;
-    gap: 8px;
-}
-
-.svc-note-line {
-    line-height: 1.55;
-}
-
 .svc-alert .svc-title,
 .svc-card .svc-title {
     color: var(--body-text-color, #1f2328);
@@ -304,7 +294,6 @@ SVC_UI_JS = r"""
     : originalFetch(input, init);
 }
 """
-
 def upload_mix_append_file(files,sfiles):
     try:
         if(sfiles is None):
