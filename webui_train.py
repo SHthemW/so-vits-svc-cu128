@@ -6,11 +6,9 @@ import signal
 import subprocess
 import sys
 import threading
-import tkinter as tk
 import urllib.request
 import zipfile
 from pathlib import Path
-from tkinter import filedialog
 
 import gradio as gr
 import torch
@@ -56,11 +54,17 @@ def _get_webui_config_key(key: str, default=None):
 
 
 def browse_dataset_dir():
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    folder = filedialog.askdirectory(title="选择数据集目录")
-    root.destroy()
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="选择数据集目录")
+        root.destroy()
+    except Exception:
+        return _get_saved_dataset_dir()
     if folder:
         _save_dataset_dir(folder)
         return folder

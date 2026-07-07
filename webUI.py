@@ -222,78 +222,6 @@ SVC_UI_CSS = """
     padding: 0 4px;
 }
 """
-
-SVC_UI_JS = r"""
-() => {
-  const originalFetch = window.fetch.bind(window);
-  const gradioApiPath = /\/(run|queue\/join|queue\/data)(\/|\?|$)/;
-
-  function requestUrl(input) {
-    if (typeof input === "string") return input;
-    if (input && typeof input.url === "string") return input.url;
-    return "";
-  }
-
-  function requestMethod(input, init) {
-    return (init && init.method) || (input && input.method) || "GET";
-  }
-
-  function shouldWrap(input, init) {
-    return requestMethod(input, init).toUpperCase() === "POST" && gradioApiPath.test(requestUrl(input));
-  }
-
-  function cloneInit(init) {
-    if (!init || !init.signal) return init;
-    return { ...init, signal: undefined };
-  }
-
-  async function fetchWithRetry(input, init) {
-    let lastResponse = null;
-    let lastError = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await originalFetch(input, attempt === 0 ? init : cloneInit(init));
-        const contentType = response.headers.get("content-type") || "";
-        if (contentType.toLowerCase().includes("application/json")) {
-          return response;
-        }
-        lastResponse = response.clone();
-      } catch (error) {
-        lastError = error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
-    }
-
-    if (lastResponse) {
-      const text = await lastResponse.text().catch(() => "");
-      const preview = text.replace(/\s+/g, " ").trim().slice(0, 240);
-      return new Response(
-        JSON.stringify({
-          error: "公网 .live 返回了非 JSON 响应，请重试或使用本地地址。"
-            + (preview ? " 响应摘要: " + preview : "")
-        }),
-        {
-          status: lastResponse.ok ? 502 : lastResponse.status || 502,
-          statusText: lastResponse.statusText || "Bad Gateway",
-          headers: { "content-type": "application/json" }
-        }
-      );
-    }
-
-    return new Response(
-      JSON.stringify({
-        error: "公网 .live 请求失败，请重试或使用本地地址。"
-          + (lastError ? " " + lastError.message : "")
-      }),
-      { status: 502, statusText: "Bad Gateway", headers: { "content-type": "application/json" } }
-    );
-  }
-
-  window.fetch = (input, init) => shouldWrap(input, init)
-    ? fetchWithRetry(input, init)
-    : originalFetch(input, init);
-}
-"""
 def upload_mix_append_file(files,sfiles):
     try:
         if(sfiles is None):
@@ -692,7 +620,6 @@ with gr.Blocks(
         font_mono=['JetBrains mono', "Consolas", 'Courier New']
     ),
     css=SVC_UI_CSS,
-    js=SVC_UI_JS,
 ) as app:
     with gr.Tabs():
         with gr.TabItem("训练"):
@@ -910,7 +837,7 @@ with gr.Blocks(
     emit_startup_banner("# WebUI")
     app.launch(
         server_name="0.0.0.0",
-        share=_gradio_share_enabled(),
+        share=False,
         max_file_size=os.environ.get("SVC_MAX_FILE_SIZE", "20gb"),
     )
 

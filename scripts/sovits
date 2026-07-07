@@ -18,16 +18,16 @@ usage() {
 Usage:
   sovits start webui [--local]
   sovits start cmd
-  sovits start tensorboard [--local]
+  sovits start tensorboard [--share|--local]
 
 Commands:
-  webui        Start WebUI. Public Gradio share is enabled by default.
+  webui        Start WebUI locally.
   webui --local
-               Start WebUI without public Gradio share.
+               Start WebUI locally.
   cmd          Open a shell with the bundled Python environment activated.
-  tensorboard  Start TensorBoard for logs/44k. Public Gradio share is enabled by default.
-  tensorboard --local
-               Start TensorBoard without public Gradio share.
+  tensorboard  Start TensorBoard for logs/44k locally.
+  tensorboard --share
+               Start TensorBoard with public Gradio share.
 EOF
 }
 
@@ -41,12 +41,9 @@ require_python_env() {
 }
 
 start_webui() {
-    local share="true"
-
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --local)
-                share="false"
                 ;;
             -h|--help)
                 usage
@@ -61,14 +58,8 @@ start_webui() {
 
     require_python_env
     cd "$ROOT_DIR"
-
-    if [ "$share" = "true" ]; then
-        echo "Starting So-VITS-SVC WebUI with public Gradio share enabled..."
-        export GRADIO_SHARE=True
-    else
-        echo "Starting So-VITS-SVC WebUI in local mode..."
-        unset GRADIO_SHARE
-    fi
+    echo "Starting So-VITS-SVC WebUI in local mode..."
+    export GRADIO_SHARE=False
 
     exec "$PYTHON" "$ROOT_DIR/webUI.py"
 }
@@ -86,10 +77,13 @@ start_cmd() {
 }
 
 start_tensorboard() {
-    local share="true"
+    local share="false"
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
+            --share)
+                share="true"
+                ;;
             --local)
                 share="false"
                 ;;

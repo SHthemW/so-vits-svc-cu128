@@ -3,10 +3,8 @@ import json
 import os
 import pickle
 import shutil
-import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog
 
 import gradio as gr
 
@@ -350,14 +348,6 @@ def delete_diff_checkpoint(selection: str):
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
-
-def browse_export_dir():
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    folder = filedialog.askdirectory(title="选择导出目录")
-    root.destroy()
-    return folder if folder else ""
 
 
 def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str, export_dir: str):
