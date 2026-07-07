@@ -19,6 +19,14 @@ ROOT = Path(__file__).parent
 WEBUI_CONFIG = ROOT / "webui_config.json"
 
 
+def _is_linux_host() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _default_dataset_tab() -> str:
+    return "dataset_upload" if _is_linux_host() else "dataset_local"
+
+
 def _load_webui_config() -> dict:
     if WEBUI_CONFIG.exists():
         try:
@@ -949,7 +957,7 @@ def build_training_tab():
                 "按顺序完成以下各步骤。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
 
-    with gr.Tabs(selected="dataset_local"):
+    with gr.Tabs(selected=_default_dataset_tab()):
         with gr.TabItem("上传", id="dataset_upload"):
             gr.HTML("""
 <div class="svc-alert svc-alert--warning">
@@ -1001,7 +1009,7 @@ def build_training_tab():
         gr.Markdown("检查 CUDA 环境、训练数据目录、预训练模型是否就绪。缺失的模型可一键从 HuggingFace 下载。")
         with gr.Row():
             env_check_btn = gr.Button("检查环境", variant="primary")
-        env_check_output = gr.Textbox(label="检查结果", lines=18, max_lines=30, interactive=False)
+        env_check_output = gr.Textbox(label="检查结果", lines=9, max_lines=15, interactive=False)
         env_check_btn.click(check_environment, [dataset_dir], [env_check_output])
 
         gr.Markdown("---")

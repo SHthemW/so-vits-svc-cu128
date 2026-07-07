@@ -105,6 +105,19 @@ debug = False
 local_model_root = str(TRAINED_DIR)
 project_root = Path(__file__).parent
 
+
+def _is_linux_host() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _server_name() -> str:
+    return "0.0.0.0" if _is_linux_host() else "127.0.0.1"
+
+
+def _default_model_tab() -> str:
+    return "local_model_local" if _is_linux_host() else "local_model_upload"
+
+
 cuda = {}
 if torch.cuda.is_available():
     for i in range(torch.cuda.device_count()):
@@ -635,10 +648,10 @@ with gr.Blocks(
                     gr.Markdown(value="""
                         <font size=2> 模型设置</font>
                         """)
-                    with gr.Tabs():
+                    with gr.Tabs(selected=_default_model_tab()):
                         # invisible checkbox that tracks tab status
-                        local_model_enabled = gr.Checkbox(value=False, visible=False)
-                        with gr.TabItem('上传') as local_model_tab_upload:
+                        local_model_enabled = gr.Checkbox(value=_is_linux_host(), visible=False)
+                        with gr.TabItem('上传', id="local_model_upload") as local_model_tab_upload:
                             _last_upload_model = _get_webui_config_key("last_upload_model", None)
                             _last_upload_config = _get_webui_config_key("last_upload_config", None)
                             _last_diff_model = _get_webui_config_key("last_diff_model", None)
@@ -656,7 +669,7 @@ with gr.Blocks(
                                                             value=_last_diff_config if _last_diff_config and os.path.exists(_last_diff_config) else None)
                             cluster_model_path = gr.File(label="选择聚类模型或特征检索文件（没有可以不选）",
                                                           value=_last_cluster if _last_cluster and os.path.exists(_last_cluster) else None)
-                        with gr.TabItem('本地') as local_model_tab_local:
+                        with gr.TabItem('本地', id="local_model_local") as local_model_tab_local:
                             gr.Markdown(f'可选择 {local_model_root} 下的已导出模型，或 logs/44k 下的训练检查点')
                             local_model_refresh_btn = gr.Button('刷新本地模型列表')
                             _local_models = scan_local_models()
@@ -836,7 +849,7 @@ with gr.Blocks(
     webbrowser.open("http://127.0.0.1:7860")
     emit_startup_banner("# WebUI")
     app.launch(
-        server_name="0.0.0.0",
+        server_name=_server_name(),
         share=False,
         max_file_size=os.environ.get("SVC_MAX_FILE_SIZE", "20gb"),
     )
