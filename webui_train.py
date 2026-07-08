@@ -8,6 +8,8 @@ import sys
 import threading
 import urllib.request
 import zipfile
+from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -132,20 +134,30 @@ def _unique_target_path(target_dir: Path, name: str) -> Path:
 
 def describe_dataset() -> str:
     dataset_root = ROOT / "dataset_raw"
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    dataset_path = escape(str(dataset_root.resolve()))
     if not dataset_root.exists():
-        return """
+        return f"""
 <div class="svc-card">
-  <div class="svc-title">当前数据集</div>
+  <div class="svc-heading-row">
+    <div class="svc-title">当前数据集</div>
+    <div class="svc-muted">最后检查: {checked_at}</div>
+  </div>
   <div>dataset_raw/ 不存在。上传数据集后会自动创建。</div>
+  <div class="svc-muted">检测路径: {dataset_path}</div>
 </div>
 """
 
     speakers = [d for d in sorted(dataset_root.iterdir()) if d.is_dir()]
     if not speakers:
-        return """
+        return f"""
 <div class="svc-card">
-  <div class="svc-title">当前数据集</div>
+  <div class="svc-heading-row">
+    <div class="svc-title">当前数据集</div>
+    <div class="svc-muted">最后检查: {checked_at}</div>
+  </div>
   <div>dataset_raw/ 存在，但还没有说话人子目录。</div>
+  <div class="svc-muted">检测路径: {dataset_path}</div>
 </div>
 """
 
@@ -154,9 +166,10 @@ def describe_dataset() -> str:
     for speaker in speakers:
         count = sum(1 for p in speaker.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS)
         total += count
+        speaker_name = escape(speaker.name)
         rows.append(
             "<div class='svc-data-row'>"
-            f"<span>{speaker.name}</span><span class='svc-num'>{count} WAV</span>"
+            f"<span>{speaker_name}</span><span class='svc-num'>{count} WAV</span>"
             "</div>"
         )
     body = "".join(rows)
@@ -164,12 +177,18 @@ def describe_dataset() -> str:
 <div class="svc-card">
   <div class="svc-heading-row">
     <div class="svc-title">当前数据集</div>
-    <div class="svc-muted">dataset_raw/</div>
+    <div class="svc-muted">最后检查: {checked_at}</div>
   </div>
+  <div class="svc-muted">检测路径: {dataset_path}</div>
   {body}
   <div class="svc-total">合计: {len(speakers)} 个说话人，{total} 个 WAV 文件</div>
 </div>
 """
+
+
+def refresh_dataset_state():
+    dataset_root = ROOT / "dataset_raw"
+    return str(dataset_root), describe_dataset()
 
 
 def _dataset_upload_error(message: str):
@@ -989,13 +1008,14 @@ def build_training_tab():
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
 
     with gr.Tabs(selected=_default_dataset_tab()):
-        with gr.TabItem("上传", id="dataset_upload"):
+        with gr.TabItem("上传", id="dataset_upload") as dataset_upload_tab:
             gr.HTML("""
 <div class="svc-alert svc-alert--warning">
   <div class="svc-title">数据集上传要求</div>
   <div>只允许上传 <code>.wav</code> 文件。数据集名称会作为 <code>dataset_raw/</code> 下的新文件夹名；数据集名称和 wav 文件名都只能使用 ASCII 字符。</div>
 </div>
 """)
+            refresh_dataset_status_btn = gr.Button("刷新数据集状态", size="sm", variant="secondary")
             dataset_status = gr.HTML(value=describe_dataset())
             upload_dataset = gr.File(
                 label="选择本地 WAV 文件",
@@ -1022,6 +1042,19 @@ def build_training_tab():
                 browse_btn = gr.Button("浏览...", scale=1)
 
     browse_btn.click(browse_dataset_dir, [], [dataset_dir])
+    refresh_dataset_status_btn.click(
+        refresh_dataset_state,
+        [],
+        [dataset_dir, dataset_status],
+        queue=False,
+    )
+    dataset_upload_tab.select(
+        refresh_dataset_state,
+        [],
+        [dataset_dir, dataset_status],
+        queue=False,
+        show_api=False,
+    )
     upload_dataset_btn.click(
         upload_dataset_files,
         [upload_dataset, upload_dataset_name],
@@ -1240,4 +1273,13 @@ def build_training_tab():
         _poll_all, [],
         poll_outputs,
         queue=False,
+    )
+
+    dataset_status_timer = gr.Timer(value=5, active=True)
+    dataset_status_timer.tick(
+        refresh_dataset_state,
+        [],
+        [dataset_dir, dataset_status],
+        queue=False,
+        show_api=False,
     )
