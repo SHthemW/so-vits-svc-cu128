@@ -182,30 +182,55 @@ def _dataset_upload_error(message: str):
 """, gr.update(), gr.update()
 
 
-def upload_dataset_files(files, dataset_name, progress=gr.Progress()):
-    progress(0, desc="准备上传")
+def _dataset_upload_progress(message: str, current: int, total: int) -> str:
+    safe_total = max(total, 1)
+    current = min(max(current, 0), safe_total)
+    percent = round(current / safe_total * 100)
+    return f"""
+<div class="svc-card">
+  <div class="svc-heading-row">
+    <div class="svc-title">上传数据集</div>
+    <div class="svc-muted">{current}/{safe_total}</div>
+  </div>
+  <progress value="{current}" max="{safe_total}" style="width:100%;height:10px"></progress>
+  <div class="svc-total">{message} ({percent}%)</div>
+</div>
+"""
 
+
+def upload_dataset_files(files, dataset_name, progress=gr.Progress()):
     if not files:
-        return _dataset_upload_error("请选择一个或多个 .wav 文件。")
+        yield _dataset_upload_error("请选择一个或多个 .wav 文件。")
+        return
 
     dataset_name, error = _validate_dataset_name(dataset_name)
     if error:
-        return _dataset_upload_error(error)
+        yield _dataset_upload_error(error)
+        return
 
     if not isinstance(files, list):
         files = [files]
 
     wav_items = []
     total = len(files)
+    progress((0, total), desc=f"准备导入 0/{total}", unit="files")
+    yield (
+        gr.update(),
+        _dataset_upload_progress(f"准备导入 {total} 个 WAV 文件", 0, total),
+        gr.update(),
+        gr.update(),
+    )
+
     for index, file in enumerate(files, start=1):
-        progress((index - 1) / max(total * 2, 1), desc=f"校验文件 {index}/{total}")
         src = _uploaded_path(file)
         name = _uploaded_name(file, src)
         if src.suffix.lower() != ".wav":
-            return _dataset_upload_error(f"{name} 不是 .wav 文件。这里只允许上传 wav 文件。")
+            yield _dataset_upload_error(f"{name} 不是 .wav 文件。这里只允许上传 wav 文件。")
+            return
         error = _filename_error(name, f"WAV 文件名 {name}")
         if error:
-            return _dataset_upload_error(error)
+            yield _dataset_upload_error(error)
+            return
         wav_items.append((src, name))
 
     dataset_root = ROOT / "dataset_raw"
@@ -214,14 +239,20 @@ def upload_dataset_files(files, dataset_name, progress=gr.Progress()):
 
     copied = 0
     for index, (src, name) in enumerate(wav_items, start=1):
-        progress((total + index - 1) / max(total * 2, 1), desc=f"复制文件 {index}/{len(wav_items)}")
         shutil.copy2(src, _unique_target_path(target_dir, name))
         copied += 1
+        progress((copied, total), desc=f"已导入 {copied}/{total}", unit="files")
+        yield (
+            gr.update(),
+            _dataset_upload_progress(f"已导入 {copied}/{total} 个 WAV 文件", copied, total),
+            gr.update(),
+            gr.update(),
+        )
 
-    progress(1, desc="上传完成")
+    progress((total, total), desc="上传完成", unit="files")
     dataset_dir = str(dataset_root)
     _save_dataset_dir(dataset_dir)
-    return dataset_dir, f"""
+    yield dataset_dir, f"""
 <div class="svc-alert svc-alert--success">
   <div class="svc-title">上传完成</div>
   <div>已导入 {copied} 个 WAV 文件到 dataset_raw/{dataset_name}/。</div>
