@@ -114,6 +114,18 @@ def _server_name() -> str:
     return "0.0.0.0" if _is_linux_host() else "127.0.0.1"
 
 
+def _root_path() -> Optional[str]:
+    configured = os.environ.get("GRADIO_ROOT_PATH")
+    if configured:
+        return configured
+
+    hostname = os.environ.get("HOSTNAME", "")
+    if hostname.startswith("cpod-"):
+        return f"https://7860-{hostname}.pod.compshare.cn"
+
+    return None
+
+
 def _default_model_tab() -> str:
     return "local_model_local" if _is_linux_host() else "local_model_upload"
 
@@ -469,9 +481,8 @@ def vc_infer(output_format, sid, audio_path, truncated_basename, vc_transform, a
     )  
     model.clear_empty()
     #构建保存文件的路径，并保存到results文件夹内
-    str(int(time.time()))
-    if not os.path.exists("results"):
-        os.makedirs("results")
+    results_dir = project_root / "results"
+    results_dir.mkdir(exist_ok=True)
     key = "auto" if auto_f0 else f"{int(vc_transform)}key"
     cluster = "_" if cluster_ratio == 0 else f"_{cluster_ratio}_"
     isdiffusion = "sovits"
@@ -481,8 +492,12 @@ def vc_infer(output_format, sid, audio_path, truncated_basename, vc_transform, a
     if model.only_diffusion:
         isdiffusion = "diff"
     
-    output_file_name = 'result_'+truncated_basename+f'_{sid}_{key}{cluster}{isdiffusion}.{output_format}'
-    output_file = os.path.join("results", output_file_name)
+    output_file_name = (
+        "result_"
+        + truncated_basename
+        + f"_{sid}_{key}{cluster}{isdiffusion}_{time.time_ns()}.{output_format}"
+    )
+    output_file = str((results_dir / output_file_name).resolve())
     soundfile.write(output_file, _audio, model.target_sample, format=output_format)
     return output_file
 
@@ -749,7 +764,7 @@ with gr.Blocks(
                 with gr.Column():
                     vc_output1 = gr.Textbox(label="Output Message")
                 with gr.Column():
-                    vc_output2 = gr.Audio(label="Output Audio", interactive=False)
+                    vc_output2 = gr.Audio(label="Output Audio", type="filepath", interactive=False)
 
         with gr.TabItem("小工具/实验室特性"):
             gr.Markdown(value="""
@@ -848,9 +863,13 @@ with gr.Blocks(
     app.queue(default_concurrency_limit=8)
     webbrowser.open("http://127.0.0.1:7860")
     emit_startup_banner("# WebUI")
+    root_path = _root_path()
+    if root_path:
+        print(f"Using Gradio root_path: {root_path}")
     app.launch(
         server_name=_server_name(),
         share=False,
+        root_path=root_path,
         max_file_size=os.environ.get("SVC_MAX_FILE_SIZE", "20gb"),
     )
 
