@@ -454,30 +454,6 @@ def scan_exported_models() -> list[str]:
     return choices
 
 
-def get_exported_info(selection: str) -> str:
-    if not selection:
-        return ""
-    rel_dir = selection.split("|")[0].strip()
-    full_dir = TRAINED_DIR / rel_dir
-    if not full_dir.exists():
-        return "目录不存在"
-    lines = [f"目录: {full_dir}"]
-    for f in sorted(full_dir.iterdir()):
-        lines.append(f"  {f.name}  ({_fmt_size(f.stat().st_size)})")
-    return "\n".join(lines)
-
-
-def delete_exported_model(selection: str):
-    if not selection:
-        return "请先选择一个模型", gr.Dropdown(choices=scan_exported_models())
-    rel_dir = selection.split("|")[0].strip()
-    full_dir = TRAINED_DIR / rel_dir
-    if not full_dir.exists():
-        return "目录不存在", gr.Dropdown(choices=scan_exported_models())
-    shutil.rmtree(str(full_dir))
-    return f"✓ 已删除: {full_dir}", gr.Dropdown(choices=scan_exported_models(), value=None)
-
-
 # ── Feature retrieval / cluster models ───────────────────────────────────────
 
 def scan_feature_models() -> list[str]:
@@ -608,16 +584,6 @@ def build_management_tab():
         export_output = gr.Textbox(label="导出结果", interactive=False, lines=5)
         export_file = gr.File(label="下载导出包", interactive=False)
 
-    with gr.Accordion("已导出模型 (trained/)", open=True):
-        with gr.Row():
-            exported_dd = gr.Dropdown(label="选择模型", choices=scan_exported_models(),
-                                      interactive=True, scale=3)
-            exported_refresh = gr.Button("刷新", scale=1)
-        exported_info = gr.Textbox(label="详情", interactive=False, lines=5)
-        with gr.Row():
-            exported_del_btn = gr.Button("删除选中模型")
-        exported_status = gr.Textbox(label="操作结果", interactive=False)
-
     # ── Events ───────────────────────────────────────────────────────
     ckpt_dd.change(get_ckpt_info, [ckpt_dd], [ckpt_info])
     ckpt_refresh.click(lambda: gr.Dropdown(choices=scan_checkpoints()), [], [ckpt_dd])
@@ -649,7 +615,3 @@ def build_management_tab():
         [export_ckpt_dd, export_diff_dd, export_feat_dd],
     )
     export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd], [export_output, export_file])
-
-    exported_dd.change(get_exported_info, [exported_dd], [exported_info])
-    exported_refresh.click(lambda: gr.Dropdown(choices=scan_exported_models()), [], [exported_dd])
-    exported_del_btn.click(delete_exported_model, [exported_dd], [exported_status, exported_dd])
