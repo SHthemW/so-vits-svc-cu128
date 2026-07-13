@@ -3,6 +3,8 @@ import json
 import os
 import pickle
 import shutil
+import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -350,40 +352,53 @@ def delete_diff_checkpoint(selection: str):
 # ── Export ────────────────────────────────────────────────────────────────────
 
 
-def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str, export_dir: str):
+def _safe_package_name(name: str) -> str:
+    safe = "".join(
+        ch if ch.isalnum() or ch in ("-", "_", ".") else "_"
+        for ch in name.strip()
+    ).strip("._")
+    return safe or "model"
+
+
+def _zip_directory(src_dir: Path, zip_path: Path):
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        for path in sorted(src_dir.rglob("*")):
+            if path.is_file():
+                zf.write(str(path), str(path.relative_to(src_dir.parent)))
+
+
+def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str):
     ckpt_name = _parse_selection(ckpt_selection)
     if not ckpt_name:
-        return "请选择要导出的主模型检查点"
-
-    export_dir = export_dir.strip()
-    if not export_dir:
-        return "请指定导出目录"
+        return "请选择要导出的主模型检查点", None
 
     g_path = LOGS_DIR / ckpt_name
     if not g_path.exists():
-        return f"检查点文件不存在: {g_path}"
+        return f"检查点文件不存在: {g_path}", None
     if not CONFIG_PATH.exists():
-        return f"配置文件不存在: {CONFIG_PATH}"
+        return f"配置文件不存在: {CONFIG_PATH}", None
 
-    spk = _get_spk_name()
-    out_dir = Path(export_dir) / spk
-    out_dir.mkdir(parents=True, exist_ok=True)
+    temp_root = Path(tempfile.mkdtemp(prefix="sovits_model_export_"))
+    spk = _safe_package_name(_get_spk_name())
+    out_dir = temp_root / spk
 
     step = _step_from_name(ckpt_name)
     out_pth = out_dir / f"{spk}_G{step}.pth"
 
     from compress_model import removeOptimizer
     try:
+        out_dir.mkdir(parents=True, exist_ok=True)
         removeOptimizer(str(CONFIG_PATH), str(g_path), False, str(out_pth))
     except Exception as e:
-        return f"压缩模型失败: {e}"
+        shutil.rmtree(str(temp_root), ignore_errors=True)
+        return f"压缩模型失败: {e}", None
 
     shutil.copy2(str(CONFIG_PATH), str(out_dir / "config.json"))
 
     result_lines = [
-        f"✓ 主模型已导出到: {out_pth}",
-        f"  压缩前: {_fmt_size(g_path.stat().st_size)} → 压缩后: {_fmt_size(out_pth.stat().st_size)}",
-        f"  配置文件: {out_dir / 'config.json'}",
+        f"✓ 主模型已导出: {out_pth.name}",
+        f"  压缩前: {_fmt_size(g_path.stat().st_size)} -> 压缩后: {_fmt_size(out_pth.stat().st_size)}",
+        "  配置文件: config.json",
     ]
 
     diff_name = _parse_selection(diff_selection) if diff_selection else ""
@@ -395,7 +410,7 @@ def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str, 
             shutil.copy2(str(diff_src), str(diff_out))
             if DIFF_CONFIG_PATH.exists():
                 shutil.copy2(str(DIFF_CONFIG_PATH), str(out_dir / "diffusion.yaml"))
-            result_lines.append(f"✓ 扩散模型已导出: {diff_out}")
+            result_lines.append(f"✓ 扩散模型已导出: {diff_out.name}")
         else:
             result_lines.append(f"⚠ 扩散模型文件不存在: {diff_src}")
 
@@ -405,11 +420,20 @@ def export_model(ckpt_selection: str, diff_selection: str, feat_selection: str, 
         if feat_src.exists():
             feat_out = out_dir / feat_name
             shutil.copy2(str(feat_src), str(feat_out))
-            result_lines.append(f"✓ 特征检索模型已导出: {feat_out}")
+            result_lines.append(f"✓ 特征检索模型已导出: {feat_out.name}")
         else:
             result_lines.append(f"⚠ 特征检索模型文件不存在: {feat_src}")
 
-    return "\n".join(result_lines)
+    zip_path = temp_root / f"{spk}_G{step}_export.zip"
+    try:
+        _zip_directory(out_dir, zip_path)
+    except Exception as e:
+        shutil.rmtree(str(temp_root), ignore_errors=True)
+        return f"打包模型失败: {e}", None
+
+    result_lines.append(f"✓ 下载包已生成: {zip_path.name} ({_fmt_size(zip_path.stat().st_size)})")
+    result_lines.append("请在下方下载文件。")
+    return "\n".join(result_lines), str(zip_path)
 
 
 # ── Exported models (trained/) ────────────────────────────────────────────────
@@ -571,7 +595,7 @@ def build_management_tab():
         feat_status = gr.Textbox(label="操作结果", interactive=False)
 
     with gr.Accordion("导出模型", open=True):
-        gr.Markdown("将训练检查点压缩（去除 optimizer 权重）并连同配置文件导出到指定目录，可直接用于推理。")
+        gr.Markdown("将训练检查点压缩（去除 optimizer 权重）并连同配置文件打包为 zip，可直接下载到本地用于推理。")
         with gr.Row():
             export_ckpt_dd = gr.Dropdown(label="主模型检查点", choices=scan_checkpoints(),
                                          interactive=True, scale=2)
@@ -580,11 +604,9 @@ def build_management_tab():
             export_feat_dd = gr.Dropdown(label="特征检索/聚类模型 (可选)", choices=scan_feature_models(),
                                           interactive=True, scale=2)
         export_refresh = gr.Button("刷新全部模型")
-        export_dir_input = gr.Textbox(label="导出目录",
-                                      placeholder="例如: /workspace/so-vits-svc-cu128/trained 或 /mnt/d/my_models",
-                                      interactive=True)
         export_btn = gr.Button("导出", variant="primary")
         export_output = gr.Textbox(label="导出结果", interactive=False, lines=5)
+        export_file = gr.File(label="下载导出包", interactive=False)
 
     with gr.Accordion("已导出模型 (trained/)", open=True):
         with gr.Row():
@@ -626,7 +648,7 @@ def build_management_tab():
         [],
         [export_ckpt_dd, export_diff_dd, export_feat_dd],
     )
-    export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd, export_dir_input], [export_output])
+    export_btn.click(export_model, [export_ckpt_dd, export_diff_dd, export_feat_dd], [export_output, export_file])
 
     exported_dd.change(get_exported_info, [exported_dd], [exported_info])
     exported_refresh.click(lambda: gr.Dropdown(choices=scan_exported_models()), [], [exported_dd])
