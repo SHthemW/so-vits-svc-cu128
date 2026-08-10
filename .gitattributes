@@ -1,0 +1,5 @@
+*.sh text eol=lf
+*.command text eol=lf
+scripts/sovits text eol=lf
+*.bat text eol=crlf
+*.md text eol=lf

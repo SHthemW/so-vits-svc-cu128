@@ -13,6 +13,16 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PYTHON="$ROOT_DIR/python_env/bin/python"
 ACTIVATE="$ROOT_DIR/python_env/bin/activate"
 
+if [ ! -x "$PYTHON" ]; then
+    PYTHON=""
+    for candidate in python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            PYTHON="$candidate"
+            break
+        fi
+    done
+fi
+
 usage() {
     cat <<EOF
 Usage:
@@ -37,7 +47,7 @@ die() {
 }
 
 require_python_env() {
-    [ -x "$PYTHON" ] || die "cannot find executable Python: $PYTHON"
+    command -v "$PYTHON" >/dev/null 2>&1 || [ -x "$PYTHON" ] || die "cannot find executable Python: $PYTHON"
 }
 
 start_webui() {

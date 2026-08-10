@@ -14,11 +14,13 @@
 - **训练页面** — 7 步引导式工作流，从数据集预处理到 SoVITS 训练、扩散模型训练、聚类模型训练。
 - **管理页面** — 删除/导出检查点、管理已导出模型、管理特征检索和聚类模型。
 
-通过 `so-vits-svc.bat` 启动，或直接运行：
+Windows 运行 `_start_gui.bat`，Linux 运行 `./_start_gui.sh`，macOS 双击 `_start_gui.command`，也可以直接运行：
 
 ```shell
 python webUI.py
 ```
+
+安装 `sovits` 命令：Windows 运行 `_install_sovits_command.bat`，Linux 运行 `./_install_sovits_command.sh`，macOS 双击 `_install_sovits_command.command`。安装后请打开新终端并运行 `sovits start webui`。
 
 ### Windows 编码修复
 

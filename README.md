@@ -14,11 +14,13 @@ The original project is CLI-only. This fork provides a full Gradio-based WebUI w
 - **Training** — 7-step guided workflow from dataset preprocessing through SoVITS training, diffusion training, and clustering model training.
 - **Management** — Delete/export checkpoints, manage exported models, manage feature retrieval and clustering models.
 
-Launch via `so-vits-svc.bat` or directly:
+Launch with `_start_gui.bat` on Windows, `./_start_gui.sh` on Linux, or `./_start_gui.command` on macOS, or run directly:
 
 ```shell
 python webUI.py
 ```
+
+To install the `sovits` command, run `_install_sovits_command.bat` on Windows, `./_install_sovits_command.sh` on Linux, or `./_install_sovits_command.command` on macOS. Then use `sovits start webui` from a new terminal.
 
 ### Windows & Encoding Fixes
 
