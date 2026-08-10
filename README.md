@@ -4,14 +4,19 @@
 
 [简体中文](README.md) | [English](README_en.md)
 
-本项目是 [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)（SoftVC VITS 歌声转换）的 fork，在原版基础上增加了 **Gradio WebUI**，支持可视化训练、推理和模型管理。目标环境为 **CUDA 12.8** (支持RTX50系显卡, 原版不支持)，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
+本项目是 [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)（SoftVC VITS 歌声转换）的 fork，在原版基础上增加了 **Gradio WebUI**，支持可视化训练、推理和模型管理。
+
+目标环境为 **CUDA 12.8** (支持RTX50系显卡, 原版不支持)，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
 
 完整更新历史见 [CHANGELOG_zh_CN.md](CHANGELOG_zh_CN.md)。
+
 整合包QQ交流群: 1104444127
 
 ## 快速开始
 
-本程序以源代码格式分发, 需要额外安装运行环境才能运行. 如果你不想手动安装依赖, 可以使用我已经部署好的云端镜像, 或者下载已安装环境的整合压缩包.
+本程序以源代码格式分发, 需要额外安装运行环境才能运行.
+
+如果你不想手动安装依赖, 可以使用我已经部署好的云端镜像, 或者下载已安装环境的整合压缩包.
 
 这里只会介绍项目的部署方式. 有关具体使用方法, 可以看语雀文档: https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc# 《So-VITS-SVC 用户使用手册 (简体中文)》
 
@@ -43,6 +48,7 @@ git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依
 
 - **pip 版本必须为 24.0**，不能使用更高版本（高版本 pip 在解析部分旧依赖时会出现兼容性问题，导致安装失败）。
 - 部分依赖已不再提供预编译 wheel 分发，安装时需要 **cmake** 从源码自行编译。请确保系统已安装 cmake 并加入 PATH。
+
 ### PyTorch
 
 - 测试环境为 **CUDA 12.8** + PyTorch 2.7.0.dev20250309+cu128。
@@ -52,8 +58,6 @@ git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依
 如果想快速使用, 可以安装 `sovits` 命令：Windows 运行 `_install_sovits_command.bat`，Linux 运行 `./_install_sovits_command.sh`，macOS 双击 `_install_sovits_command.command`。
 
 后续可以打开新终端并运行 `sovits start webui`来一键从任何目录启动程序.
-
-
 
 ## 与原版的主要区别
 
@@ -94,7 +98,9 @@ git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依
 
 ## 免责声明
 
-本项目为开源、离线项目，不收集用户数据。使用者应对其训练数据和转换的音频拥有合法权利。
+本项目为开源、离线项目，不收集用户数据。
+
+使用者应对其训练数据和转换的音频拥有合法权利。
 
 ## 许可证
 

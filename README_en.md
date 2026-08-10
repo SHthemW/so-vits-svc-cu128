@@ -4,14 +4,19 @@
 
 [简体中文](README.md) | [English](README_en.md)
 
-This project is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc) (SoftVC VITS Singing Voice Conversion). It adds a **Gradio WebUI** for visual training, inference, and model management. The target environment is **CUDA 12.8**, with support for RTX 50-series GPUs that the upstream project does not provide, along with compatibility fixes for newer PyTorch versions on Windows.
+This project is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc) (SoftVC VITS Singing Voice Conversion). It adds a **Gradio WebUI** for visual training, inference, and model management.
+
+The target environment is **CUDA 12.8**, with support for RTX 50-series GPUs that the upstream project does not provide, along with compatibility fixes for newer PyTorch versions on Windows.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
+
 Prebuilt package QQ group: 1104444127
 
 ## Quick Start
 
-This project is distributed as source code and requires a separate runtime environment. If you do not want to install the dependencies manually, you can use the preconfigured cloud image or download the prebuilt package with the environment included.
+This project is distributed as source code and requires a separate runtime environment.
+
+If you do not want to install the dependencies manually, you can use the preconfigured cloud image or download the prebuilt package with the environment included.
 
 This section only covers project deployment. For detailed usage instructions, see the [So-VITS-SVC User Guide (Simplified Chinese)](https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc#).
 
@@ -93,7 +98,9 @@ The original project is CLI-only. This fork provides a full Gradio-based WebUI w
 
 ## Disclaimer
 
-This project is open-source and offline. It does not collect user data. Users are responsible for ensuring they have the rights to use their training data and the audio they process.
+This project is open-source and offline. It does not collect user data.
+
+Users are responsible for ensuring they have the rights to use their training data and the audio they process.
 
 ## License
 
