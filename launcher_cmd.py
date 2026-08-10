@@ -2,7 +2,6 @@ import os
 import sys
 import subprocess
 from launcher_update import auto_update_from_gitee
-from startup_banner import emit_startup_banner
 
 if getattr(sys, 'frozen', False):
     script_dir = os.path.dirname(os.path.abspath(sys.executable))
