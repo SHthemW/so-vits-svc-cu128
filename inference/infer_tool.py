@@ -25,6 +25,12 @@ from models import SynthesizerTrn
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 
+def set_torchaudio_backend(backend):
+    set_audio_backend = getattr(torchaudio, "set_audio_backend", None)
+    if callable(set_audio_backend):
+        set_audio_backend(backend)
+
+
 def read_temp(file_name):
     if not os.path.exists(file_name):
         with open(file_name, "w", encoding="utf-8") as f:
@@ -268,7 +274,7 @@ class Svc(object):
               second_encoding = False,
               loudness_envelope_adjustment = 1
               ):
-        torchaudio.set_audio_backend("soundfile")
+        set_torchaudio_backend("soundfile")
         wav, sr = torchaudio.load(raw_path)
         if not hasattr(self,"audio_resample_transform") or self.audio16k_resample_transform.orig_freq != sr:
             self.audio_resample_transform = torchaudio.transforms.Resample(sr,self.target_sample)

@@ -25,12 +25,7 @@ with open(pyvenv_config, "w") as f:
     f.write("include-system-site-packages = false\n")
     f.write("version = 3.9.8\n")
 
-print()
-print("# So-Vits-SVC 4.1 with Cuda 12.8")
-print()
-print("- Intergrated by SHW / SHthemW@Github")
-print("- So-Vits-SVC 为开源软件, 本整合包亦完全免费, 请勿用于商用.")
-print()
+emit_startup_banner()
 
 activate_bat = os.path.join(venv_dir, "Scripts", "activate.bat")
 print("虚拟环境已成功激活.")

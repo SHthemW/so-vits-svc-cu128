@@ -1,14 +1,17 @@
 import json
 import os
+import re
+import shutil
+import signal
 import subprocess
 import sys
 import threading
-import time
-import tkinter as tk
-from tkinter import filedialog
 import urllib.request
 import zipfile
+from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
+from typing import Optional, Tuple
 
 import gradio as gr
 import torch
@@ -16,6 +19,14 @@ import torch
 PYTHON = sys.executable
 ROOT = Path(__file__).parent
 WEBUI_CONFIG = ROOT / "webui_config.json"
+
+
+def _is_linux_host() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _default_dataset_tab() -> str:
+    return "dataset_upload" if _is_linux_host() else "dataset_local"
 
 
 def _load_webui_config() -> dict:
@@ -54,17 +65,220 @@ def _get_webui_config_key(key: str, default=None):
 
 
 def browse_dataset_dir():
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    folder = filedialog.askdirectory(title="选择数据集目录")
-    root.destroy()
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="选择数据集目录")
+        root.destroy()
+    except Exception:
+        return _get_saved_dataset_dir()
     if folder:
         _save_dataset_dir(folder)
         return folder
     return _get_saved_dataset_dir()
 
-import re
+
+AUDIO_EXTENSIONS = {".wav"}
+INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
+
+
+def _filename_error(name: str, label: str) -> Optional[str]:
+    if not name:
+        return f"{label}不能为空。"
+    if not name.isascii():
+        return f"{label}只能使用 ASCII 字符。"
+    if any(ord(ch) < 32 or ch in INVALID_FILENAME_CHARS for ch in name):
+        return f"{label}不能包含控制字符或这些字符: <>:\"/\\|?*"
+    if name in {".", ".."}:
+        return f"{label}不能是 . 或 ..。"
+    if name != name.strip(" ."):
+        return f"{label}不能以空格或点开头/结尾。"
+    return None
+
+
+def _validate_dataset_name(name: str) -> Tuple[Optional[str], Optional[str]]:
+    dataset_name = (name or "").strip()
+    error = _filename_error(dataset_name, "数据集名称")
+    if error:
+        return None, error
+    return dataset_name, None
+
+
+def _uploaded_path(file) -> Path:
+    return Path(getattr(file, "name", file))
+
+
+def _uploaded_name(file, path: Path) -> str:
+    name = getattr(file, "orig_name", None) or getattr(file, "name", None) or path.name
+    return Path(str(name)).name
+
+
+def _unique_target_path(target_dir: Path, name: str) -> Path:
+    dst = target_dir / name
+    if not dst.exists():
+        return dst
+
+    stem = dst.stem
+    ext = dst.suffix
+    duplicate_index = 1
+    while True:
+        candidate = target_dir / f"{stem}_{duplicate_index}{ext}"
+        if not candidate.exists():
+            return candidate
+        duplicate_index += 1
+
+
+def describe_dataset() -> str:
+    dataset_root = ROOT / "dataset_raw"
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    dataset_path = escape(str(dataset_root.resolve()))
+    if not dataset_root.exists():
+        return f"""
+<div class="svc-card">
+  <div class="svc-heading-row">
+    <div class="svc-title">当前数据集</div>
+    <div class="svc-muted">最后检查: {checked_at}</div>
+  </div>
+  <div>dataset_raw/ 不存在。上传数据集后会自动创建。</div>
+  <div class="svc-muted">检测路径: {dataset_path}</div>
+</div>
+"""
+
+    speakers = [d for d in sorted(dataset_root.iterdir()) if d.is_dir()]
+    if not speakers:
+        return f"""
+<div class="svc-card">
+  <div class="svc-heading-row">
+    <div class="svc-title">当前数据集</div>
+    <div class="svc-muted">最后检查: {checked_at}</div>
+  </div>
+  <div>dataset_raw/ 存在，但还没有说话人子目录。</div>
+  <div class="svc-muted">检测路径: {dataset_path}</div>
+</div>
+"""
+
+    rows = []
+    total = 0
+    for speaker in speakers:
+        count = sum(1 for p in speaker.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS)
+        total += count
+        speaker_name = escape(speaker.name)
+        rows.append(
+            "<div class='svc-data-row'>"
+            f"<span>{speaker_name}</span><span class='svc-num'>{count} WAV</span>"
+            "</div>"
+        )
+    body = "".join(rows)
+    return f"""
+<div class="svc-card">
+  <div class="svc-heading-row">
+    <div class="svc-title">当前数据集</div>
+    <div class="svc-muted">最后检查: {checked_at}</div>
+  </div>
+  <div class="svc-muted">检测路径: {dataset_path}</div>
+  {body}
+  <div class="svc-total">合计: {len(speakers)} 个说话人，{total} 个 WAV 文件</div>
+</div>
+"""
+
+
+def refresh_dataset_state():
+    dataset_root = ROOT / "dataset_raw"
+    return str(dataset_root), describe_dataset()
+
+
+def _dataset_upload_error(message: str):
+    return str(ROOT / "dataset_raw"), f"""
+<div class="svc-alert svc-alert--error">
+  <div class="svc-title">上传失败</div>
+  <div>{message}</div>
+</div>
+{describe_dataset()}
+""", gr.update(), gr.update()
+
+
+def _dataset_upload_progress(message: str, current: int, total: int) -> str:
+    safe_total = max(total, 1)
+    current = min(max(current, 0), safe_total)
+    percent = round(current / safe_total * 100)
+    return f"""
+<div class="svc-card">
+  <div class="svc-heading-row">
+    <div class="svc-title">上传数据集</div>
+    <div class="svc-muted">{current}/{safe_total}</div>
+  </div>
+  <progress value="{current}" max="{safe_total}" style="width:100%;height:10px"></progress>
+  <div class="svc-total">{message} ({percent}%)</div>
+</div>
+"""
+
+
+def upload_dataset_files(files, dataset_name, progress=gr.Progress()):
+    if not files:
+        yield _dataset_upload_error("请选择一个或多个 .wav 文件。")
+        return
+
+    dataset_name, error = _validate_dataset_name(dataset_name)
+    if error:
+        yield _dataset_upload_error(error)
+        return
+
+    if not isinstance(files, list):
+        files = [files]
+
+    wav_items = []
+    total = len(files)
+    progress((0, total), desc=f"准备导入 0/{total}", unit="files")
+    yield (
+        gr.update(),
+        _dataset_upload_progress(f"准备导入 {total} 个 WAV 文件", 0, total),
+        gr.update(),
+        gr.update(),
+    )
+
+    for index, file in enumerate(files, start=1):
+        src = _uploaded_path(file)
+        name = _uploaded_name(file, src)
+        if src.suffix.lower() != ".wav":
+            yield _dataset_upload_error(f"{name} 不是 .wav 文件。这里只允许上传 wav 文件。")
+            return
+        error = _filename_error(name, f"WAV 文件名 {name}")
+        if error:
+            yield _dataset_upload_error(error)
+            return
+        wav_items.append((src, name))
+
+    dataset_root = ROOT / "dataset_raw"
+    target_dir = dataset_root / dataset_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for index, (src, name) in enumerate(wav_items, start=1):
+        shutil.copy2(src, _unique_target_path(target_dir, name))
+        copied += 1
+        progress((copied, total), desc=f"已导入 {copied}/{total}", unit="files")
+        yield (
+            gr.update(),
+            _dataset_upload_progress(f"已导入 {copied}/{total} 个 WAV 文件", copied, total),
+            gr.update(),
+            gr.update(),
+        )
+
+    progress((total, total), desc="上传完成", unit="files")
+    dataset_dir = str(dataset_root)
+    _save_dataset_dir(dataset_dir)
+    yield dataset_dir, f"""
+<div class="svc-alert svc-alert--success">
+  <div class="svc-title">上传完成</div>
+  <div>已导入 {copied} 个 WAV 文件到 dataset_raw/{dataset_name}/。</div>
+</div>
+{describe_dataset()}
+""", None, ""
+
 
 _procs: dict = {
     "download": None,
@@ -356,6 +570,8 @@ def _launch(key: str, args: list, clear_log: bool = True) -> str:
         bufsize=1,
         cwd=str(ROOT),
         env=env,
+        start_new_session=(os.name != "nt"),
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     with _lock:
         _procs[key] = proc
@@ -402,17 +618,27 @@ def _stop(key: str) -> str:
     if proc is None or proc.poll() is not None:
         return f"[{key}] 没有正在运行的进程"
     pid = proc.pid
-    try:
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            capture_output=True, timeout=10
-        )
-    except Exception:
-        proc.kill()
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=10
+            )
+        except Exception:
+            proc.kill()
+    else:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except Exception:
+            proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        pass
+        if os.name != "nt":
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except Exception:
+                proc.kill()
     return f"[{key}] 已停止"
 
 
@@ -776,33 +1002,78 @@ def _poll_all():
     return result
 
 
-def _poll_tick():
-    return time.time()
-
-
 def build_training_tab():
     gr.Markdown("## So-VITS-SVC 训练流程\n"
                 "按顺序完成以下各步骤。\n\n"
                 "训练进程在WebUI重启后会继续在后台运行，可通过 `logs/44k/train.log` 查看进度。")
 
-    with gr.Row():
-        dataset_dir = gr.Textbox(
-            label="数据集目录 (包含说话人子文件夹或直接包含wav的目录，留空则使用默认 dataset_raw/)",
-            placeholder="例如: D:\\my_audio\\singer1_dataset  或留空使用 dataset_raw/",
-            value=_get_saved_dataset_dir(),
-            interactive=True,
-            scale=4,
-        )
-        browse_btn = gr.Button("浏览...", scale=1)
+    with gr.Tabs(selected=_default_dataset_tab()):
+        with gr.TabItem("上传", id="dataset_upload") as dataset_upload_tab:
+            gr.HTML("""
+<div class="svc-alert svc-alert--warning">
+  <div class="svc-title">数据集上传要求</div>
+  <div>只允许上传 <code>.wav</code> 文件。数据集名称会作为 <code>dataset_raw/</code> 下的新文件夹名；数据集名称和 wav 文件名都只能使用 ASCII 字符。</div>
+</div>
+""")
+            refresh_dataset_status_btn = gr.Button("刷新数据集状态", size="sm", variant="secondary")
+            dataset_status = gr.HTML(value=describe_dataset())
+            upload_dataset = gr.File(
+                label="选择本地 WAV 文件",
+                file_count="multiple",
+                file_types=[".wav"],
+                type="filepath",
+            )
+            upload_dataset_name = gr.Textbox(
+                label="数据集名称",
+                placeholder="例如 Ya",
+                max_lines=1,
+            )
+            upload_dataset_btn = gr.Button("上传到 dataset_raw", variant="primary")
+
+        with gr.TabItem("本地", id="dataset_local"):
+            with gr.Row():
+                dataset_dir = gr.Textbox(
+                    label="数据集目录 (包含说话人子文件夹或直接包含wav的目录，留空则使用默认 dataset_raw/)",
+                    placeholder="例如: D:\\my_audio\\singer1_dataset  或留空使用 dataset_raw/",
+                    value=_get_saved_dataset_dir(),
+                    interactive=True,
+                    scale=4,
+                )
+                browse_btn = gr.Button("浏览...", scale=1)
 
     browse_btn.click(browse_dataset_dir, [], [dataset_dir])
+    refresh_dataset_status_btn.click(
+        refresh_dataset_state,
+        [],
+        [dataset_dir, dataset_status],
+        queue=False,
+    )
+    dataset_upload_tab.select(
+        refresh_dataset_state,
+        [],
+        [dataset_dir, dataset_status],
+        queue=False,
+        show_api=False,
+    )
+    upload_dataset_btn.click(
+        upload_dataset_files,
+        [upload_dataset, upload_dataset_name],
+        [dataset_dir, dataset_status, upload_dataset, upload_dataset_name],
+        queue=True,
+    )
+
+    _refresh_events = []
+
+    def _bind_refresh(event):
+        _refresh_events.append(event)
+        return event
 
     # ── Step 0: Environment check & download ─────────────────────────
     with gr.Accordion("前置步骤：环境检查与模型下载", open=True):
         gr.Markdown("检查 CUDA 环境、训练数据目录、预训练模型是否就绪。缺失的模型可一键从 HuggingFace 下载。")
         with gr.Row():
             env_check_btn = gr.Button("检查环境", variant="primary")
-        env_check_output = gr.Textbox(label="检查结果", lines=18, max_lines=30, interactive=False)
+        env_check_output = gr.Textbox(label="检查结果", lines=9, max_lines=15, interactive=False)
         env_check_btn.click(check_environment, [dataset_dir], [env_check_output])
 
         gr.Markdown("---")
@@ -817,9 +1088,9 @@ def build_training_tab():
         dl_log = gr.Textbox(label="下载日志", value=get_download_log, lines=10, max_lines=20, interactive=False)
         dl_clear_btn = gr.Button("清除日志", size="sm")
 
-        dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status])
-        dl_stop_btn.click(stop_download, [], [dl_status])
-        dl_clear_btn.click(clear_download_log, [], [dl_log])
+        _bind_refresh(dl_start_btn.click(start_download, [dl_pretrain, dl_base], [dl_status], queue=False))
+        _bind_refresh(dl_stop_btn.click(stop_download, [], [dl_status], queue=False))
+        dl_clear_btn.click(clear_download_log, [], [dl_log], queue=False)
 
     # ── Step 1: Resample ─────────────────────────────────────────────
     with gr.Accordion("第一步：音频重采样 (resample.py)", open=False):
@@ -843,9 +1114,9 @@ def build_training_tab():
         resample_log = gr.Textbox(label="日志", value=get_resample_log, lines=8, max_lines=15, interactive=False)
         resample_clear_btn = gr.Button("清除日志", size="sm")
 
-        resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status])
-        resample_stop_btn.click(stop_resample, [], [resample_status])
-        resample_clear_btn.click(clear_resample_log, [], [resample_log])
+        _bind_refresh(resample_start_btn.click(start_resample, [dataset_dir, resample_skip_loudnorm, resample_procs], [resample_status], queue=False))
+        _bind_refresh(resample_stop_btn.click(stop_resample, [], [resample_status], queue=False))
+        resample_clear_btn.click(clear_resample_log, [], [resample_log], queue=False)
 
     # ── Step 2: flist + config ───────────────────────────────────────
     with gr.Accordion("第二步：生成文件列表和配置 (preprocess_flist_config.py)", open=False):
@@ -868,9 +1139,9 @@ def build_training_tab():
         flist_log = gr.Textbox(label="日志", value=get_flist_log, lines=8, max_lines=15, interactive=False)
         flist_clear_btn = gr.Button("清除日志", size="sm")
 
-        flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status])
-        flist_stop_btn.click(stop_flist, [], [flist_status])
-        flist_clear_btn.click(clear_flist_log, [], [flist_log])
+        _bind_refresh(flist_start_btn.click(start_flist, [flist_encoder, flist_vol_aug, flist_tiny], [flist_status], queue=False))
+        _bind_refresh(flist_stop_btn.click(stop_flist, [], [flist_status], queue=False))
+        flist_clear_btn.click(clear_flist_log, [], [flist_log], queue=False)
 
     # ── Step 3: Hubert + F0 ──────────────────────────────────────────
     with gr.Accordion("第三步：提取特征和F0 (preprocess_hubert_f0.py)", open=False):
@@ -892,9 +1163,9 @@ def build_training_tab():
         hubert_log = gr.Textbox(label="日志", value=get_hubert_log, lines=8, max_lines=15, interactive=False)
         hubert_clear_btn = gr.Button("清除日志", size="sm")
 
-        hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status])
-        hubert_stop_btn.click(stop_hubert, [], [hubert_status])
-        hubert_clear_btn.click(clear_hubert_log, [], [hubert_log])
+        _bind_refresh(hubert_start_btn.click(start_hubert, [hubert_f0, hubert_procs, hubert_diff, hubert_dev], [hubert_status], queue=False))
+        _bind_refresh(hubert_stop_btn.click(stop_hubert, [], [hubert_status], queue=False))
+        hubert_clear_btn.click(clear_hubert_log, [], [hubert_log], queue=False)
 
     # ── Training config editor ───────────────────────────────────────
     with gr.Accordion("训练参数配置 (configs/config.json)", open=False):
@@ -924,9 +1195,9 @@ def build_training_tab():
         train_log = gr.Textbox(label="训练日志", value=get_train_log, lines=15, max_lines=30, interactive=False)
         train_clear_btn = gr.Button("清除日志", size="sm")
 
-        train_start_btn.click(start_train, [], [train_status])
-        train_stop_btn.click(stop_train, [], [train_status])
-        train_clear_btn.click(clear_train_log, [], [train_log])
+        _bind_refresh(train_start_btn.click(start_train, [], [train_status], queue=False))
+        _bind_refresh(train_stop_btn.click(stop_train, [], [train_status], queue=False))
+        train_clear_btn.click(clear_train_log, [], [train_log], queue=False)
 
     # ── Step 5: Diffusion training ───────────────────────────────────
     with gr.Accordion("第五步（可选）：训练扩散模型 (train_diff.py)", open=False):
@@ -939,9 +1210,9 @@ def build_training_tab():
         diff_log = gr.Textbox(label="扩散模型训练日志", value=get_train_diff_log, lines=12, max_lines=25, interactive=False)
         diff_clear_btn = gr.Button("清除日志", size="sm")
 
-        diff_start_btn.click(start_train_diff, [], [diff_status])
-        diff_stop_btn.click(stop_train_diff, [], [diff_status])
-        diff_clear_btn.click(clear_train_diff_log, [], [diff_log])
+        _bind_refresh(diff_start_btn.click(start_train_diff, [], [diff_status], queue=False))
+        _bind_refresh(diff_stop_btn.click(stop_train_diff, [], [diff_status], queue=False))
+        diff_clear_btn.click(clear_train_diff_log, [], [diff_log], queue=False)
 
     # ── Step 6: Index ────────────────────────────────────────────────
     with gr.Accordion("第六步：构建特征检索索引 (train_index.py)", open=False):
@@ -954,9 +1225,9 @@ def build_training_tab():
         index_log = gr.Textbox(label="日志", value=get_index_log, lines=8, max_lines=15, interactive=False)
         index_clear_btn = gr.Button("清除日志", size="sm")
 
-        index_start_btn.click(start_index, [], [index_status])
-        index_stop_btn.click(stop_index, [], [index_status])
-        index_clear_btn.click(clear_index_log, [], [index_log])
+        _bind_refresh(index_start_btn.click(start_index, [], [index_status], queue=False))
+        _bind_refresh(index_stop_btn.click(stop_index, [], [index_status], queue=False))
+        index_clear_btn.click(clear_index_log, [], [index_log], queue=False)
 
     # ── Step 7: Cluster ─────────────────────────────────────────────
     with gr.Accordion("第七步（可选）：训练聚类模型 (cluster/train_cluster.py)", open=False):
@@ -969,22 +1240,46 @@ def build_training_tab():
         cluster_log = gr.Textbox(label="日志", value=get_cluster_log, lines=8, max_lines=15, interactive=False)
         cluster_clear_btn = gr.Button("清除日志", size="sm")
 
-        cluster_start_btn.click(start_cluster, [], [cluster_status])
-        cluster_stop_btn.click(stop_cluster, [], [cluster_status])
-        cluster_clear_btn.click(clear_cluster_log, [], [cluster_log])
+        _bind_refresh(cluster_start_btn.click(start_cluster, [], [cluster_status], queue=False))
+        _bind_refresh(cluster_stop_btn.click(stop_cluster, [], [cluster_status], queue=False))
+        cluster_clear_btn.click(clear_cluster_log, [], [cluster_log], queue=False)
 
-    # ── Single timer for all status/log polling ─────────────────────
-    _timer = gr.Number(value=_poll_tick, every=5, visible=False)
-    _timer.change(
+    poll_outputs = [
+        dl_status, dl_log,
+        resample_status, resample_log,
+        flist_status, flist_log,
+        hubert_status, hubert_log,
+        train_status, train_log,
+        diff_status, diff_log,
+        index_status, index_log,
+        cluster_status, cluster_log,
+    ]
+
+    for event in _refresh_events:
+        event.then(_poll_all, [], poll_outputs, queue=False)
+
+    poll_refresh_btn = gr.Button("刷新全部训练状态")
+    poll_refresh_btn.click(
         _poll_all, [],
-        [
-            dl_status, dl_log,
-            resample_status, resample_log,
-            flist_status, flist_log,
-            hubert_status, hubert_log,
-            train_status, train_log,
-            diff_status, diff_log,
-            index_status, index_log,
-            cluster_status, cluster_log,
-        ],
+        poll_outputs,
+        queue=False,
+    )
+
+    # Keep training status/log polling active for both local and public links.
+    # webUI.py wraps Gradio API fetches with retries to handle occasional
+    # non-JSON responses from public .live tunnels.
+    _timer = gr.Timer(value=5, active=True)
+    _timer.tick(
+        _poll_all, [],
+        poll_outputs,
+        queue=False,
+    )
+
+    dataset_status_timer = gr.Timer(value=5, active=True)
+    dataset_status_timer.tick(
+        refresh_dataset_state,
+        [],
+        [dataset_dir, dataset_status],
+        queue=False,
+        show_api=False,
     )

@@ -1,79 +1,111 @@
-# so-vits-svc-cu128
+# So-VITS-SVC-Cu12.8-GUI Fork
 
-This is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc) (SoftVC VITS Singing Voice Conversion), featuring a **Gradio WebUI** for training, inference, and model management. It targets **CUDA 12.8** and includes fixes for newer PyTorch versions on Windows.
+<img src="docs/screenshots/webui-main.png" alt="So-VITS-SVC GUI 主界面" width="75%">
 
-See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
+[简体中文](README.md) | [English](README_en.md)
 
-## Differences from Upstream
+本项目是 [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)（SoftVC VITS 歌声转换）的 fork，在原版基础上增加了 **Gradio WebUI**，支持可视化训练、推理和模型管理。
 
-### GUI
+目标环境为 **CUDA 12.8** (支持RTX50系显卡, 原版不支持)，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
 
-The original project is CLI-only. This fork provides a full Gradio-based WebUI with the following pages:
+完整更新历史见 [CHANGELOG_zh_CN.md](CHANGELOG_zh_CN.md)。
 
-- **Inference** — Load models, convert voice, adjust parameters visually. Supports local model selection with memory of the last used model.
-- **Training** — 7-step guided workflow from dataset preprocessing through SoVITS training, diffusion training, and clustering model training.
-- **Management** — Delete/export checkpoints, manage exported models, manage feature retrieval and clustering models.
+整合包QQ交流群: 1104444127
 
-Launch via `so-vits-svc.bat` or directly:
+## 快速开始
 
-```shell
-python webUI.py
-```
+本程序以源代码格式分发, 需要额外安装运行环境才能运行.
 
-### Windows & Encoding Fixes
+如果你不想手动安装依赖, 可以使用我已经部署好的云端镜像, 或者下载已安装环境的整合压缩包.
 
-- All file I/O enforces `encoding='utf-8'` — fixes garbled text (mojibake) on Windows (GBK locale).
-- `train.py` reading `config.json` now handles GBK-encoded files gracefully.
-- `filelists` are always written as UTF-8, preventing training crashes caused by CJK filenames.
-- Gradio upgraded from 3.36 to 4.44.1 for Windows compatibility.
+这里只会介绍项目的部署方式. 有关具体使用方法, 可以看语雀文档: https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc# 《So-VITS-SVC 用户使用手册 (简体中文)》
 
-### Python Version
+### 使用预配置的云端镜像(推荐)
 
-- **Python 3.9 ~ 3.10** required.
-- Tested with **Python 3.9.8** — confirmed working.
-- Python 3.8 is not supported (PyTorch 2.7 dropped it). Python 3.11+ is not supported (blocked by `fairseq==0.12.2`).
+- 优云智算站: https://www.compshare.cn/images/bYafh6fXRTsK?referral_code=n2qzZuyGlyDPbOYHPvUGy
 
-### pip & Dependency Compilation
+### 从整合包运行
 
-- **pip version must be 24.0** — newer versions have compatibility issues resolving some legacy dependencies and will fail to install.
-- Some dependencies no longer provide pre-built wheel distributions. **cmake** is required to build them from source. Make sure cmake is installed and available in your PATH.
-- If you just want to run the project, a pre-built environment package is available: [Download](https://pan.quark.cn/s/28b5ef9da0c4)
+- 夸克网盘: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-### PyTorch Compatibility
+下载好后运行so-vits-svc.exe即可打开webui.
 
-- Tested with **CUDA 12.8** and PyTorch 2.7.0.dev20250309+cu128.
-- Fixed `UnpicklingError` when loading clustering models under PyTorch 2.6+ (removed `weights_only=True`).
-- Clustering training uses `MiniBatchKMeans` to avoid memory exhaustion on large datasets.
-- KMeans parameters auto-adapt based on dataset size and available system memory.
-- Feature index building memory footprint reduced to prevent OOM crashes.
+### 从源代码运行
 
-### Logging & UX
+git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依赖.
 
-- Logs auto-scroll to the bottom using native Gradio autoscroll.
-- Dedicated clear-log button below the log area.
-- Fixed button visibility and process termination issues.
-- 14 independent polling timers merged into one, fixing long-running disconnect issues.
-- Gradio queue concurrency increased, fixing log freezing after tab switches.
-- Polling skips updates when nothing changed, eliminating UI flicker.
+完成安装后运行对应平台的`_start_gui`启动脚本即可.
 
-### Training & Config
+## 环境要求
 
-- Training parameters in the WebUI are initialized from `config.json` on startup.
-- Clustering model training is integrated as step 7 in the training workflow.
-- Preprocessing pipeline received multiple fixes for edge cases.
+### Python 版本
 
-### Auto-Download
+- 需要 **Python 3.9 ~ 3.10**。
+- 实测 **Python 3.9.8** 可正常运行。
+- Python 3.8 不受支持（PyTorch 2.7 已不再支持）。Python 3.11+ 不受支持（`fairseq==0.12.2` 不兼容）。
 
-Pre-trained models can be automatically downloaded, reducing manual setup steps.
+### pip 与依赖编译
 
-## Disclaimer
+- **pip 版本必须为 24.0**，不能使用更高版本（高版本 pip 在解析部分旧依赖时会出现兼容性问题，导致安装失败）。
+- 部分依赖已不再提供预编译 wheel 分发，安装时需要 **cmake** 从源码自行编译。请确保系统已安装 cmake 并加入 PATH。
 
-This project is open-source and offline. It does not collect user data. Users are responsible for ensuring they have the rights to use their training data and the audio they process.
+### PyTorch
 
-## License
+- 测试环境为 **CUDA 12.8** + PyTorch 2.7.0.dev20250309+cu128。
 
-AGPL 3.0 — same as upstream.
+## 启动命令
 
-## Original README
+如果想快速使用, 可以安装 `sovits` 命令：Windows 运行 `_install_sovits_command.bat`，Linux 运行 `./_install_sovits_command.sh`，macOS 双击 `_install_sovits_command.command`。
 
-For detailed documentation on model architecture, dataset preparation, preprocessing, training, and inference parameters, see the [upstream repository](https://github.com/svc-develop-team/so-vits-svc).
+后续可以打开新终端并运行 `sovits start webui`来一键从任何目录启动程序.
+
+## 与原版的主要区别
+
+### GUI 界面
+
+原版仅有命令行接口。本 fork 提供完整的 Gradio WebUI，包含以下页面：
+
+- **推理页面** — 加载模型、转换声音、可视化调参。支持从本地模型列表选择，会记住上次使用的模型。
+- **训练页面** — 7 步引导式工作流，从数据集预处理到 SoVITS 训练、扩散模型训练、聚类模型训练。
+- **管理页面** — 删除/导出检查点、管理已导出模型、管理特征检索和聚类模型。
+
+### Windows 编码修复
+
+- 全部文件读写强制指定 `encoding='utf-8'`，修复 Windows 中文环境下出现乱码的问题。
+- `train.py` 读取 `config.json` 时兼容 GBK 编码文件。
+- `filelists` 始终以 UTF-8 写入，避免中文文件名导致训练中断。
+- Gradio 从 3.36 升级到 4.44.1，改善 Windows 兼容性。
+
+### 日志与UX
+
+- 日志自动滚动到底部（使用 Gradio 原生 autoscroll）。
+- 日志框下方有独立的清空日志按钮。
+- 修复清空日志按钮不显示、停止进程不彻底等问题。
+- 14 个独立轮询合并为单一计时器，修复长时间运行后断连的问题。
+- 提高 Gradio 队列并发数，修复切换 Tab 后日志不更新的问题。
+- 轮询无变化时跳过更新，消除 UI 闪烁。
+
+### 训练与配置
+
+- 支持自动下载预训练模型，减少手动配置步骤。
+- WebUI 训练参数在启动时从 `config.json` 读取已保存的值。
+- 聚类模型训练作为训练流程的第 7 步集成。
+- 修复预处理流程的多个边界问题。
+- 修复 PyTorch 2.6+ 下加载聚类模型时的 `UnpicklingError`。
+- 聚类训练改用 `MiniBatchKMeans`，避免大数据集时内存耗尽或卡死。
+- KMeans 参数根据数据集大小和可用内存自动适配。
+- 降低特征索引构建的内存占用，避免 OOM 崩溃。
+
+## 免责声明
+
+本项目为开源、离线项目，不收集用户数据。
+
+使用者应对其训练数据和转换的音频拥有合法权利。
+
+## 许可证
+
+AGPL 3.0，与原项目一致。
+
+## 原始文档
+
+关于模型架构、数据集准备、预处理、训练、推理参数等详细文档，请参阅[原仓库](https://github.com/svc-develop-team/so-vits-svc)。

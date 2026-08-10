@@ -1,7 +1,7 @@
 import torch
-from fairseq import checkpoint_utils
 
 from vencoder.encoder import SpeechEncoder
+from vencoder.fairseq_compat import load_model_ensemble_and_task
 
 
 class CNHubertLarge(SpeechEncoder):
@@ -9,7 +9,7 @@ class CNHubertLarge(SpeechEncoder):
         super().__init__()
         print("load model(s) from {}".format(vec_path))
         self.hidden_dim = 1024
-        models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task(
+        models, saved_cfg, task = load_model_ensemble_and_task(
           [vec_path],
           suffix="",
         )

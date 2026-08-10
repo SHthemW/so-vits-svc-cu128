@@ -113,6 +113,8 @@ if __name__ == "__main__":
     if args.tiny:
         config_template["model"]["filter_channels"] = 512
 
+    os.makedirs("configs", exist_ok=True)
+
     logger.info("Writing to configs/config.json")
     with open("configs/config.json", "w", encoding="utf-8") as f:
         json.dump(config_template, f, indent=2)
