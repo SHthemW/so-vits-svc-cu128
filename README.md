@@ -1,53 +1,37 @@
-# so-vits-svc-cu128-gui
+# So-VITS-SVC-Cu12.8-GUI Fork
 
-<img src="docs/screenshots/webui-main.png" alt="So-VITS-SVC GUI 主界面" width="800">
+<img src="docs/screenshots/webui-main.png" alt="So-VITS-SVC GUI 主界面" width="75%">
 
 [简体中文](README.md) | [English](README_en.md)
 
-本项目是 [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)（SoftVC VITS 歌声转换）的 fork，在原版基础上增加了 **Gradio WebUI**，支持可视化训练、推理和模型管理。目标环境为 **CUDA 12.8**，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
+本项目是 [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)（SoftVC VITS 歌声转换）的 fork，在原版基础上增加了 **Gradio WebUI**，支持可视化训练、推理和模型管理。目标环境为 **CUDA 12.8** (支持RTX50系显卡, 原版不支持)，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
 
 完整更新历史见 [CHANGELOG_zh_CN.md](CHANGELOG_zh_CN.md)。
+整合包QQ交流群: 1104444127
 
-## 与原版的主要区别
+## 快速开始
 
-### GUI 界面
+本程序以源代码格式分发, 需要额外安装运行环境才能运行. 如果你不想手动安装依赖, 可以使用我已经部署好的云端镜像, 或者下载已安装环境的整合压缩包.
 
-原版仅有命令行接口。本 fork 提供完整的 Gradio WebUI，包含以下页面：
+这里只会介绍项目的部署方式. 有关具体使用方法, 可以看语雀文档: https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc# 《So-VITS-SVC 用户使用手册 (简体中文)》
 
-- **推理页面** — 加载模型、转换声音、可视化调参。支持从本地模型列表选择，会记住上次使用的模型。
-- **训练页面** — 7 步引导式工作流，从数据集预处理到 SoVITS 训练、扩散模型训练、聚类模型训练。
-- **管理页面** — 删除/导出检查点、管理已导出模型、管理特征检索和聚类模型。
+### 使用预配置的云端镜像(推荐)
 
-### 界面预览
+- 优云智算站: https://www.compshare.cn/images/bYafh6fXRTsK?referral_code=n2qzZuyGlyDPbOYHPvUGy
 
-#### 模型推理
+### 从整合包运行
 
-<img src="docs/screenshots/webui-inference.png" alt="模型推理界面" width="800">
+- 夸克网盘: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-#### 模型管理
+下载好后运行so-vits-svc.exe即可打开webui.
 
-<img src="docs/screenshots/webui-management.png" alt="模型管理界面" width="800">
+### 从源代码运行
 
-#### 小工具与实验功能
+git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依赖.
 
-<img src="docs/screenshots/webui-tools.png" alt="小工具与实验功能界面" width="800">
+完成安装后运行对应平台的`_start_gui`启动脚本即可.
 
-### 启动方式
-
-Windows 运行 `_start_gui.bat`，Linux 运行 `./_start_gui.sh`，macOS 双击 `_start_gui.command`，也可以直接运行：
-
-```shell
-python webUI.py
-```
-
-安装 `sovits` 命令：Windows 运行 `_install_sovits_command.bat`，Linux 运行 `./_install_sovits_command.sh`，macOS 双击 `_install_sovits_command.command`。安装后请打开新终端并运行 `sovits start webui`。
-
-### Windows 编码修复
-
-- 全部文件读写强制指定 `encoding='utf-8'`，修复 Windows 中文环境下出现乱码的问题。
-- `train.py` 读取 `config.json` 时兼容 GBK 编码文件。
-- `filelists` 始终以 UTF-8 写入，避免中文文件名导致训练中断。
-- Gradio 从 3.36 升级到 4.44.1，改善 Windows 兼容性。
+## 环境要求
 
 ### Python 版本
 
@@ -59,17 +43,36 @@ python webUI.py
 
 - **pip 版本必须为 24.0**，不能使用更高版本（高版本 pip 在解析部分旧依赖时会出现兼容性问题，导致安装失败）。
 - 部分依赖已不再提供预编译 wheel 分发，安装时需要 **cmake** 从源码自行编译。请确保系统已安装 cmake 并加入 PATH。
-- 如果你只是想运行项目，可以使用预构建的环境包：[下载链接](https://pan.quark.cn/s/28b5ef9da0c4)
-
-### PyTorch 兼容性
+### PyTorch
 
 - 测试环境为 **CUDA 12.8** + PyTorch 2.7.0.dev20250309+cu128。
-- 修复 PyTorch 2.6+ 下加载聚类模型时的 `UnpicklingError`。
-- 聚类训练改用 `MiniBatchKMeans`，避免大数据集时内存耗尽或卡死。
-- KMeans 参数根据数据集大小和可用内存自动适配。
-- 降低特征索引构建的内存占用，避免 OOM 崩溃。
 
-### 日志与用户体验
+## 启动命令
+
+如果想快速使用, 可以安装 `sovits` 命令：Windows 运行 `_install_sovits_command.bat`，Linux 运行 `./_install_sovits_command.sh`，macOS 双击 `_install_sovits_command.command`。
+
+后续可以打开新终端并运行 `sovits start webui`来一键从任何目录启动程序.
+
+
+
+## 与原版的主要区别
+
+### GUI 界面
+
+原版仅有命令行接口。本 fork 提供完整的 Gradio WebUI，包含以下页面：
+
+- **推理页面** — 加载模型、转换声音、可视化调参。支持从本地模型列表选择，会记住上次使用的模型。
+- **训练页面** — 7 步引导式工作流，从数据集预处理到 SoVITS 训练、扩散模型训练、聚类模型训练。
+- **管理页面** — 删除/导出检查点、管理已导出模型、管理特征检索和聚类模型。
+
+### Windows 编码修复
+
+- 全部文件读写强制指定 `encoding='utf-8'`，修复 Windows 中文环境下出现乱码的问题。
+- `train.py` 读取 `config.json` 时兼容 GBK 编码文件。
+- `filelists` 始终以 UTF-8 写入，避免中文文件名导致训练中断。
+- Gradio 从 3.36 升级到 4.44.1，改善 Windows 兼容性。
+
+### 日志与UX
 
 - 日志自动滚动到底部（使用 Gradio 原生 autoscroll）。
 - 日志框下方有独立的清空日志按钮。
@@ -80,13 +83,14 @@ python webUI.py
 
 ### 训练与配置
 
+- 支持自动下载预训练模型，减少手动配置步骤。
 - WebUI 训练参数在启动时从 `config.json` 读取已保存的值。
 - 聚类模型训练作为训练流程的第 7 步集成。
 - 修复预处理流程的多个边界问题。
-
-### 自动下载
-
-支持自动下载预训练模型，减少手动配置步骤。
+- 修复 PyTorch 2.6+ 下加载聚类模型时的 `UnpicklingError`。
+- 聚类训练改用 `MiniBatchKMeans`，避免大数据集时内存耗尽或卡死。
+- KMeans 参数根据数据集大小和可用内存自动适配。
+- 降低特征索引构建的内存占用，避免 OOM 崩溃。
 
 ## 免责声明
 

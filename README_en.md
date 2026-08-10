@@ -1,51 +1,37 @@
-# so-vits-svc-cu128
+# So-VITS-SVC-Cu12.8-GUI Fork
 
-<img src="docs/screenshots/webui-main.png" alt="So-VITS-SVC GUI" width="800">
+<img src="docs/screenshots/webui-main.png" alt="So-VITS-SVC GUI" width="75%">
 
 [简体中文](README.md) | [English](README_en.md)
 
-This is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc) (SoftVC VITS Singing Voice Conversion), featuring a **Gradio WebUI** for training, inference, and model management. It targets **CUDA 12.8** and includes fixes for newer PyTorch versions on Windows.
+This project is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc) (SoftVC VITS Singing Voice Conversion). It adds a **Gradio WebUI** for visual training, inference, and model management. The target environment is **CUDA 12.8**, with support for RTX 50-series GPUs that the upstream project does not provide, along with compatibility fixes for newer PyTorch versions on Windows.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
+Prebuilt package QQ group: 1104444127
 
-## Differences from Upstream
+## Quick Start
 
-### GUI
+This project is distributed as source code and requires a separate runtime environment. If you do not want to install the dependencies manually, you can use the preconfigured cloud image or download the prebuilt package with the environment included.
 
-The original project is CLI-only. This fork provides a full Gradio-based WebUI with the following pages:
+This section only covers project deployment. For detailed usage instructions, see the [So-VITS-SVC User Guide (Simplified Chinese)](https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc#).
 
-- **Inference** — Load models, convert voice, adjust parameters visually. Supports local model selection with memory of the last used model.
-- **Training** — 7-step guided workflow from dataset preprocessing through SoVITS training, diffusion training, and clustering model training.
-- **Management** — Delete/export checkpoints, manage exported models, manage feature retrieval and clustering models.
+### Use a Preconfigured Cloud Image (Recommended)
 
-### GUI Screenshots
+- Compshare: https://www.compshare.cn/images/bYafh6fXRTsK?referral_code=n2qzZuyGlyDPbOYHPvUGy
 
-#### Inference
+### Run from the Prebuilt Package
 
-<img src="docs/screenshots/webui-inference.png" alt="Inference interface" width="800">
+- Quark Cloud Drive: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-#### Model Management
+After downloading, run `so-vits-svc.exe` to open the WebUI.
 
-<img src="docs/screenshots/webui-management.png" alt="Model management interface" width="800">
+### Run from Source
 
-#### Tools and Experiments
+Clone the source code locally and install the dependencies described in [System Requirements](#system-requirements).
 
-<img src="docs/screenshots/webui-tools.png" alt="Tools and experiments interface" width="800">
+After installation, run the `_start_gui` launcher for your platform.
 
-Launch with `_start_gui.bat` on Windows, `./_start_gui.sh` on Linux, or `./_start_gui.command` on macOS, or run directly:
-
-```shell
-python webUI.py
-```
-
-To install the `sovits` command, run `_install_sovits_command.bat` on Windows, `./_install_sovits_command.sh` on Linux, or `./_install_sovits_command.command` on macOS. Then use `sovits start webui` from a new terminal.
-
-### Windows & Encoding Fixes
-
-- All file I/O enforces `encoding='utf-8'` — fixes garbled text (mojibake) on Windows (GBK locale).
-- `train.py` reading `config.json` now handles GBK-encoded files gracefully.
-- `filelists` are always written as UTF-8, preventing training crashes caused by CJK filenames.
-- Gradio upgraded from 3.36 to 4.44.1 for Windows compatibility.
+## System Requirements
 
 ### Python Version
 
@@ -53,38 +39,57 @@ To install the `sovits` command, run `_install_sovits_command.bat` on Windows, `
 - Tested with **Python 3.9.8** — confirmed working.
 - Python 3.8 is not supported (PyTorch 2.7 dropped it). Python 3.11+ is not supported (blocked by `fairseq==0.12.2`).
 
-### pip & Dependency Compilation
+### pip and Dependency Compilation
 
 - **pip version must be 24.0** — newer versions have compatibility issues resolving some legacy dependencies and will fail to install.
 - Some dependencies no longer provide pre-built wheel distributions. **cmake** is required to build them from source. Make sure cmake is installed and available in your PATH.
-- If you just want to run the project, a pre-built environment package is available: [Download](https://pan.quark.cn/s/28b5ef9da0c4)
 
-### PyTorch Compatibility
+### PyTorch
 
 - Tested with **CUDA 12.8** and PyTorch 2.7.0.dev20250309+cu128.
-- Fixed `UnpicklingError` when loading clustering models under PyTorch 2.6+ (removed `weights_only=True`).
-- Clustering training uses `MiniBatchKMeans` to avoid memory exhaustion on large datasets.
-- KMeans parameters auto-adapt based on dataset size and available system memory.
-- Feature index building memory footprint reduced to prevent OOM crashes.
+
+## Startup Commands
+
+For quick access, install the `sovits` command by running `_install_sovits_command.bat` on Windows, `./_install_sovits_command.sh` on Linux, or `./_install_sovits_command.command` on macOS.
+
+Then open a new terminal and run `sovits start webui` to launch the application from any directory.
+
+## Differences from Upstream
+
+### GUI
+
+The original project is CLI-only. This fork provides a full Gradio-based WebUI with the following pages:
+
+- **Inference** — Load models, convert voice, and adjust parameters visually. Supports local model selection and remembers the last model used.
+- **Training** — A guided seven-step workflow covering dataset preprocessing, SoVITS training, diffusion model training, and clustering model training.
+- **Management** — Delete or export checkpoints, manage exported models, and manage feature retrieval and clustering models.
+
+### Windows and Encoding Fixes
+
+- All file I/O enforces `encoding='utf-8'`, fixing garbled text (mojibake) on Windows systems using the GBK locale.
+- `train.py` handles GBK-encoded `config.json` files gracefully.
+- `filelists` are always written as UTF-8, preventing training failures caused by CJK filenames.
+- Gradio was upgraded from 3.36 to 4.44.1 for better Windows compatibility.
 
 ### Logging & UX
 
-- Logs auto-scroll to the bottom using native Gradio autoscroll.
-- Dedicated clear-log button below the log area.
-- Fixed button visibility and process termination issues.
-- 14 independent polling timers merged into one, fixing long-running disconnect issues.
-- Gradio queue concurrency increased, fixing log freezing after tab switches.
-- Polling skips updates when nothing changed, eliminating UI flicker.
+- Logs automatically scroll to the bottom using Gradio's native autoscroll.
+- A dedicated clear-log button is available below the log area.
+- Fixed clear-log button visibility and incomplete process termination.
+- Merged 14 independent polling timers into one, fixing disconnections after long-running sessions.
+- Increased Gradio queue concurrency, fixing logs freezing after switching tabs.
+- Polling skips updates when nothing has changed, eliminating UI flicker.
 
-### Training & Config
+### Training and Configuration
 
-- Training parameters in the WebUI are initialized from `config.json` on startup.
-- Clustering model training is integrated as step 7 in the training workflow.
-- Preprocessing pipeline received multiple fixes for edge cases.
-
-### Auto-Download
-
-Pre-trained models can be automatically downloaded, reducing manual setup steps.
+- Supports automatic downloading of pre-trained models, reducing manual setup.
+- WebUI training parameters are initialized from saved values in `config.json` at startup.
+- Clustering model training is integrated as step 7 of the training workflow.
+- Fixed multiple edge cases in the preprocessing pipeline.
+- Fixed `UnpicklingError` when loading clustering models with PyTorch 2.6+.
+- Clustering model training uses `MiniBatchKMeans` to avoid memory exhaustion or hangs with large datasets.
+- KMeans parameters adapt automatically to the dataset size and available system memory.
+- Reduced memory usage when building feature indexes to prevent out-of-memory crashes.
 
 ## Disclaimer
 
@@ -94,6 +99,6 @@ This project is open-source and offline. It does not collect user data. Users ar
 
 AGPL 3.0 — same as upstream.
 
-## Original README
+## Original Documentation
 
 For detailed documentation on model architecture, dataset preparation, preprocessing, training, and inference parameters, see the [upstream repository](https://github.com/svc-develop-team/so-vits-svc).
