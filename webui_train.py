@@ -187,8 +187,7 @@ def describe_dataset() -> str:
 
 
 def refresh_dataset_state():
-    dataset_root = ROOT / "dataset_raw"
-    return str(dataset_root), describe_dataset()
+    return describe_dataset()
 
 
 def _dataset_upload_error(message: str):
@@ -1048,13 +1047,13 @@ def build_training_tab():
     refresh_dataset_status_btn.click(
         refresh_dataset_state,
         [],
-        [dataset_dir, dataset_status],
+        [dataset_status],
         queue=False,
     )
     dataset_upload_tab.select(
         refresh_dataset_state,
         [],
-        [dataset_dir, dataset_status],
+        [dataset_status],
         queue=False,
         show_api=False,
     )
@@ -1282,7 +1281,7 @@ def build_training_tab():
     dataset_status_timer.tick(
         refresh_dataset_state,
         [],
-        [dataset_dir, dataset_status],
+        [dataset_status],
         queue=False,
         show_api=False,
     )
