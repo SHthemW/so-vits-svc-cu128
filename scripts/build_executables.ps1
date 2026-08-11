@@ -175,6 +175,43 @@ function Remove-SafeBuildDirectory {
 }
 
 
+function Remove-SafePublishedArtifact {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RootDir,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedPaths
+    )
+
+    $ResolvedRoot = [IO.Path]::GetFullPath($RootDir).TrimEnd("\", "/")
+    $ResolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd("\", "/")
+    $ResolvedAllowedPaths = @(
+        $AllowedPaths | ForEach-Object {
+            [IO.Path]::GetFullPath($_).TrimEnd("\", "/")
+        }
+    )
+    $RequiredPrefix = $ResolvedRoot + [IO.Path]::DirectorySeparatorChar
+
+    if (
+        -not $ResolvedPath.StartsWith($RequiredPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+        $ResolvedPath -notin $ResolvedAllowedPaths
+    ) {
+        throw "Refusing to remove an unexpected published artifact: $ResolvedPath"
+    }
+
+    if (Test-Path -LiteralPath $ResolvedPath -PathType Container) {
+        Remove-Item -LiteralPath $ResolvedPath -Recurse -Force
+    }
+    elseif (Test-Path -LiteralPath $ResolvedPath -PathType Leaf) {
+        Remove-Item -LiteralPath $ResolvedPath -Force
+    }
+}
+
+
 function New-WindowsVersionFile {
     param(
         [Parameter(Mandatory = $true)]
@@ -331,7 +368,7 @@ function Build-LauncherExecutables {
                 "-m", "PyInstaller",
                 "--noconfirm",
                 "--clean",
-                "--onedir",
+                "--onefile",
                 "--noupx",
                 "--console",
                 "--log-level", "WARN",
@@ -353,7 +390,7 @@ function Build-LauncherExecutables {
             }
 
             $Arguments += $ScriptPath
-            Write-Host "[Build] Building $($Entrypoint.Name) in directory mode with UPX disabled..."
+            Write-Host "[Build] Building $($Entrypoint.Name) in single-file mode with UPX disabled..."
             Invoke-CheckedNativeCommand `
                 -Executable $BuildPython `
                 -Arguments $Arguments `
@@ -367,7 +404,7 @@ function Build-LauncherExecutables {
     $ExecutableSuffix = if ($IsWindowsPlatform) { ".exe" } else { "" }
     $ExecutablePaths = @()
     foreach ($Entrypoint in $Entrypoints) {
-        $ExecutablePath = Join-Path (Join-Path $ExecutableRoot $Entrypoint.Name) "$($Entrypoint.Name)$ExecutableSuffix"
+        $ExecutablePath = Join-Path $ExecutableRoot "$($Entrypoint.Name)$ExecutableSuffix"
         if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) {
             throw "Built executable is missing: $ExecutablePath"
         }
@@ -376,11 +413,35 @@ function Build-LauncherExecutables {
 
     Invoke-LauncherCodeSigning -ExecutablePaths $ExecutablePaths -IsWindowsPlatform $IsWindowsPlatform
 
-    foreach ($ExecutablePath in $ExecutablePaths) {
+    $AllowedPublishedPaths = @(
+        $Entrypoints | ForEach-Object {
+            Join-Path $RootDir $_.Name
+            Join-Path $RootDir "$($_.Name)-internal"
+            Join-Path $RootDir "$($_.Name)$ExecutableSuffix"
+        }
+    )
+    $AllowedPublishedPaths += Join-Path $RootDir "_internal"
+
+    foreach ($PublishedPath in $AllowedPublishedPaths) {
+        Remove-SafePublishedArtifact `
+            -Path $PublishedPath `
+            -RootDir $RootDir `
+            -AllowedPaths $AllowedPublishedPaths
+    }
+
+    $PublishedExecutablePaths = @()
+    foreach ($Entrypoint in $Entrypoints) {
+        $ExecutablePath = Join-Path $ExecutableRoot "$($Entrypoint.Name)$ExecutableSuffix"
+        $PublishedExecutablePath = Join-Path $RootDir "$($Entrypoint.Name)$ExecutableSuffix"
+        Copy-Item -LiteralPath $ExecutablePath -Destination $PublishedExecutablePath -Force
+        $PublishedExecutablePaths += $PublishedExecutablePath
+    }
+
+    foreach ($PublishedExecutablePath in $PublishedExecutablePaths) {
         Invoke-CheckedNativeCommand `
-            -Executable $ExecutablePath `
+            -Executable $PublishedExecutablePath `
             -Arguments @("--self-test") `
-            -FailureMessage "Executable self-test failed for $ExecutablePath"
-        Write-Host "[Build] Executable ready: $ExecutablePath"
+            -FailureMessage "Executable self-test failed for $PublishedExecutablePath"
+        Write-Host "[Build] Executable ready: $PublishedExecutablePath"
     }
 }

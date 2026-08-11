@@ -30,7 +30,7 @@ This section only covers project deployment. For detailed usage instructions, se
 
 - Quark Cloud Drive: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-After downloading and extracting the package, run `so-vits-svc-start_gui/so-vits-svc-start_gui.exe` to open the WebUI.
+After downloading and extracting the package, run `so-vits-svc-start_gui.exe` from the project root to open the WebUI.
 
 ### Run from Source
 
@@ -57,15 +57,15 @@ After installation, run `python start_gui.py`. The script automatically selects 
 
 ## Startup Commands
 
-For quick access, run `python install_sovits_command.py` to install the `sovits` command. Prebuilt-package users can instead run the matching executable inside the `so-vits-svc-install_sovits_command` directory.
+For quick access, run `python install_sovits_command.py` to install the `sovits` command. Prebuilt-package users can instead run `so-vits-svc-install_sovits_command.exe` from the project root.
 
 Then open a new terminal and run `sovits start webui` to launch the application from any directory.
 
 ## Building a Release Package
 
-On Windows, `_build.bat` creates two directory-mode executables in an isolated PyInstaller environment, then packages the source, bundled runtime, pretrained models, and executables as `dist/so-vits-svc-cu128-yyyyMMdd-HHmmss.zip`.
+On Windows, `_build.bat` creates two single-file executables in an isolated PyInstaller environment, publishes them to the project root, then packages them with the source, bundled runtime, and pretrained models as `dist/so-vits-svc-cu128-yyyyMMdd-HHmmss.zip`.
 
-The build uses `--onedir` with UPX disabled to reduce antivirus false positives associated with self-extracting single-file executables and binary compression. If a code-signing certificate is available in the local certificate store, set `SOVITS_SIGN_CERT_SHA1` to its thumbprint and the build will sign both main executables with `signtool.exe`.
+The build uses `--onefile` with UPX disabled and does not generate or package launcher directories or an `_internal` directory. A single-file executable extracts itself to the system temporary directory at startup, so its first launch can be slower and more prone to antivirus false positives. If a code-signing certificate is available in the local certificate store, set `SOVITS_SIGN_CERT_SHA1` to its thumbprint and the build will sign both main executables with `signtool.exe`.
 
 - `_build.bat --dry-run`: validate the release manifest without building executables.
 - `_build.bat --build-only`: build and self-test both executables without creating the large archive.

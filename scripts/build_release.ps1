@@ -18,7 +18,6 @@ $RootPrefix = $RootDir.TrimEnd("\", "/") + [IO.Path]::DirectorySeparatorChar
 $IsWindowsPlatform = $env:OS -eq "Windows_NT"
 $PlatformCommandFile = if ($IsWindowsPlatform) { "scripts/sovits.bat" } else { "scripts/sovits" }
 $BuildRoot = Join-Path $RootDir "build"
-$ExecutableRoot = Join-Path $BuildRoot "launchers"
 $DistDir = Join-Path $RootDir "dist"
 $IconPath = Join-Path $RootDir "resource\sovits_ico.ico"
 $BuildRequirementsPath = Join-Path $RootDir "requirements_build.txt"
@@ -71,7 +70,12 @@ $ExcludedRootDirectories = @(
     "temp",
     "build",
     "build_exe",
-    "dist"
+    "dist",
+    "_internal",
+    "so-vits-svc-start_gui",
+    "so-vits-svc-start_gui-internal",
+    "so-vits-svc-install_sovits_command",
+    "so-vits-svc-install_sovits_command-internal"
 )
 
 $EscapedRootDirectories = @(
@@ -154,8 +158,9 @@ function Test-BuiltBundlePath {
     )
 
     $NormalizedPath = Normalize-ArchivePath -Path $RelativePath
+    $ExecutableSuffix = if ($IsWindowsPlatform) { ".exe" } else { "" }
     foreach ($Entrypoint in $Entrypoints) {
-        if ($NormalizedPath -eq $Entrypoint.Name -or $NormalizedPath.StartsWith("$($Entrypoint.Name)/", [StringComparison]::OrdinalIgnoreCase)) {
+        if ($NormalizedPath -eq "$($Entrypoint.Name)$ExecutableSuffix") {
             return $true
         }
     }
@@ -210,25 +215,19 @@ function Get-ReleaseSourceFiles {
         Sort-Object -Unique
 }
 
-function Test-LauncherBundles {
+function Test-PublishedLaunchers {
     $ExecutableSuffix = if ($IsWindowsPlatform) { ".exe" } else { "" }
     $ExecutablePaths = @()
 
     foreach ($Entrypoint in $Entrypoints) {
-        $BundleRoot = Join-Path $ExecutableRoot $Entrypoint.Name
-        $ExecutablePath = Join-Path $BundleRoot "$($Entrypoint.Name)$ExecutableSuffix"
+        $ExecutablePath = Join-Path $RootDir "$($Entrypoint.Name)$ExecutableSuffix"
         if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) {
-            throw "Built executable is missing: $ExecutablePath"
+            throw "Published executable is missing: $ExecutablePath"
         }
 
-        $SensitiveBundleFiles = @(
-            Get-ChildItem -LiteralPath $BundleRoot -Recurse -Force -File | Where-Object {
-                $RelativePath = $_.FullName.Substring($ExecutableRoot.TrimEnd("\", "/").Length + 1)
-                Test-SensitivePath -RelativePath $RelativePath
-            }
-        )
-        if ($SensitiveBundleFiles.Count -gt 0) {
-            throw "Built launcher bundle contains a sensitive file: $($SensitiveBundleFiles[0].FullName)"
+        $RelativePath = ConvertTo-RelativePath -File (Get-Item -LiteralPath $ExecutablePath)
+        if (Test-SensitivePath -RelativePath $RelativePath) {
+            throw "Published executable matches a sensitive path rule: $ExecutablePath"
         }
 
         $ExecutablePaths += $ExecutablePath
@@ -247,6 +246,8 @@ function Test-ExclusionRules {
         "python_env/package/direct_url.json",
         "python_env/package/__pycache__/module.pyc",
         "webui_config.json",
+        "_internal/python39.dll",
+        "so-vits-svc-start_gui/_internal/python39.dll",
         ".ssh/id_ed25519"
     )) {
         if (-not (Test-ExcludedSourcePath -RelativePath $ExcludedPath)) {
@@ -259,31 +260,17 @@ function Test-ExclusionRules {
             throw "Release exclusion rule rejected a required path: $AllowedPath"
         }
     }
-}
 
-function Remove-TemporaryBundleDirectory {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    $ResolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd("\", "/")
-    $AllowedPaths = @(
-        $Entrypoints | ForEach-Object {
-            [IO.Path]::GetFullPath((Join-Path $RootDir $_.Name)).TrimEnd("\", "/")
+    $ExecutableSuffix = if ($IsWindowsPlatform) { ".exe" } else { "" }
+    foreach ($Entrypoint in $Entrypoints) {
+        $PublishedExecutable = "$($Entrypoint.Name)$ExecutableSuffix"
+        if (-not (Test-BuiltBundlePath -RelativePath $PublishedExecutable)) {
+            throw "Published executable rule did not accept: $PublishedExecutable"
         }
-    )
-    if ($ResolvedPath -notin $AllowedPaths) {
-        throw "Refusing to remove an unexpected temporary bundle path: $ResolvedPath"
-    }
-
-    if (Test-Path -LiteralPath $ResolvedPath) {
-        Remove-Item -LiteralPath $ResolvedPath -Recurse -Force
     }
 }
 
 $ArchiveOwned = $false
-$TemporaryBundlePaths = @()
 
 try {
     Test-ExclusionRules
@@ -338,12 +325,12 @@ try {
         -Entrypoints $Entrypoints `
         -IsWindowsPlatform $IsWindowsPlatform
 
-    $ExecutablePaths = @(Test-LauncherBundles)
-    Write-Host "[Build] Launcher bundles verified: $($ExecutablePaths.Count)"
+    $ExecutablePaths = @(Test-PublishedLaunchers)
+    Write-Host "[Build] Published launchers verified: $($ExecutablePaths.Count)"
 
     if ($BuildOnly) {
         Write-Host "[Build] Build-only run completed successfully."
-        Write-Host "[Build] Launcher directory: $ExecutableRoot"
+        Write-Host "[Build] Launcher directory: $RootDir"
         return
     }
 
@@ -352,24 +339,9 @@ try {
         throw "Build output already exists: $ArchivePath"
     }
 
-    foreach ($Entrypoint in $Entrypoints) {
-        $TemporaryBundlePath = Join-Path $RootDir $Entrypoint.Name
-        if (Test-Path -LiteralPath $TemporaryBundlePath) {
-            throw "Temporary package path already exists: $TemporaryBundlePath"
-        }
-    }
-
-    foreach ($Entrypoint in $Entrypoints) {
-        $BundleSource = Join-Path $ExecutableRoot $Entrypoint.Name
-        $TemporaryBundlePath = Join-Path $RootDir $Entrypoint.Name
-        $TemporaryBundlePaths += $TemporaryBundlePath
-        Copy-Item -LiteralPath $BundleSource -Destination $TemporaryBundlePath -Recurse -Force
-    }
-
     $BundleFiles = @(
-        $TemporaryBundlePaths | ForEach-Object {
-            Get-ChildItem -LiteralPath $_ -Recurse -Force -File |
-                ForEach-Object { ConvertTo-RelativePath -File $_ }
+        $ExecutablePaths | ForEach-Object {
+            ConvertTo-RelativePath -File (Get-Item -LiteralPath $_)
         }
     )
     $ArchiveFiles = @($Files + $BundleFiles) | Sort-Object -Unique
@@ -409,7 +381,7 @@ try {
     $ExecutableSuffix = if ($IsWindowsPlatform) { ".exe" } else { "" }
     $RequiredArchiveEntries = @($RequiredSourceFiles)
     $RequiredArchiveEntries += @(
-        $Entrypoints | ForEach-Object { "$($_.Name)/$($_.Name)$ExecutableSuffix" }
+        $Entrypoints | ForEach-Object { "$($_.Name)$ExecutableSuffix" }
     )
     $MissingArchiveEntries = @(
         $RequiredArchiveEntries | Where-Object { $_ -notin $ArchiveEntries }
@@ -441,12 +413,4 @@ catch {
 }
 finally {
     Remove-Item -LiteralPath $ManifestPath -Force -ErrorAction SilentlyContinue
-    foreach ($TemporaryBundlePath in $TemporaryBundlePaths) {
-        try {
-            Remove-TemporaryBundleDirectory -Path $TemporaryBundlePath
-        }
-        catch {
-            Write-Warning "Failed to remove temporary bundle directory: $($_.Exception.Message)"
-        }
-    }
 }

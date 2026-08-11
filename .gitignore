@@ -173,7 +173,4 @@ webui_config.json
 get-pip.py
 .pip-wheels/
 build_exe/
-/so-vits-svc-start_gui/
-/so-vits-svc-install_sovits_command/
-/so-vits-svc-start_gui.exe
-/so-vits-svc-install_sovits_command.exe
+/so-vits-svc-*

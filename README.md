@@ -30,7 +30,7 @@
 
 - 夸克网盘: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-下载并解压后，运行 `so-vits-svc-start_gui/so-vits-svc-start_gui.exe` 即可打开 WebUI。
+下载并解压后，运行项目根目录下的 `so-vits-svc-start_gui.exe` 即可打开 WebUI。
 
 ### 从源代码运行
 
@@ -57,15 +57,15 @@ git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依
 
 ## 启动命令
 
-如果想快速使用，可以运行 `python install_sovits_command.py` 安装 `sovits` 命令。整合包用户也可以运行 `so-vits-svc-install_sovits_command` 目录内的同名可执行程序。
+如果想快速使用，可以运行 `python install_sovits_command.py` 安装 `sovits` 命令。整合包用户也可以运行项目根目录下的 `so-vits-svc-install_sovits_command.exe`。
 
 后续可以打开新终端并运行 `sovits start webui`来一键从任何目录启动程序.
 
 ## 构建发布包
 
-Windows 下运行 `_build.bat` 会使用隔离的 PyInstaller 环境构建两个目录式可执行程序，并将程序源码、内置运行环境、预训练模型和可执行程序打包到 `dist/so-vits-svc-cu128-yyyyMMdd-HHmmss.zip`。
+Windows 下运行 `_build.bat` 会使用隔离的 PyInstaller 环境构建两个单文件可执行程序，将它们发布到项目根目录，并与程序源码、内置运行环境和预训练模型一起打包到 `dist/so-vits-svc-cu128-yyyyMMdd-HHmmss.zip`。
 
-构建采用 `--onedir` 且禁用 UPX，以减少单文件自解压和二进制压缩导致的杀毒软件误报。若本机证书存储中有代码签名证书，可先设置 `SOVITS_SIGN_CERT_SHA1` 为证书指纹，构建脚本将使用 `signtool.exe` 对两个主程序签名。
+构建采用 `--onefile` 且禁用 UPX，不会生成或打包启动器目录与 `_internal` 目录。单文件程序启动时会临时解压到系统临时目录，首次启动可能稍慢，也可能更容易触发杀毒软件误报。若本机证书存储中有代码签名证书，可先设置 `SOVITS_SIGN_CERT_SHA1` 为证书指纹，构建脚本将使用 `signtool.exe` 对两个主程序签名。
 
 - `_build.bat --dry-run`：仅验证发布文件清单，不构建可执行程序。
 - `_build.bat --build-only`：仅构建并自检两个可执行程序，不生成大型压缩包。
