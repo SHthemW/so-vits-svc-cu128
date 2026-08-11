@@ -813,14 +813,17 @@ def get_flist_status():
 
 
 def start_hubert(f0_predictor, num_processes, use_diff, device):
+    num_processes = max(int(num_processes), 1)
+    if torch.device(device).type == "cuda":
+        num_processes = 1
     _save_webui_config_key("hubert_f0", f0_predictor)
-    _save_webui_config_key("hubert_num_processes", int(num_processes))
+    _save_webui_config_key("hubert_num_processes", num_processes)
     _save_webui_config_key("hubert_use_diff", bool(use_diff))
     _save_webui_config_key("hubert_device", device)
     args = ["preprocess_hubert_f0.py",
             "--in_dir", "dataset/44k",
             "--f0_predictor", f0_predictor,
-            "--num_processes", str(int(num_processes)),
+            "--num_processes", str(num_processes),
             "--device", device]
     if use_diff:
         args.append("--use_diff")

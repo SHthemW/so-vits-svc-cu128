@@ -28,6 +28,41 @@ hop_length = hps.data.hop_length
 speech_encoder = hps["model"]["speech_encoder"]
 
 
+def resolve_device(requested_device):
+    if requested_device is None:
+        requested_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    device = torch.device(requested_device)
+    if device.type != "cuda":
+        return device
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(f"CUDA device {device} was requested, but CUDA is not available")
+
+    device_index = device.index if device.index is not None else 0
+    device_count = torch.cuda.device_count()
+    if device_index >= device_count:
+        raise ValueError(
+            f"CUDA device index {device_index} is out of range; found {device_count} device(s)"
+        )
+    return torch.device(f"cuda:{device_index}")
+
+
+def resolve_num_processes(requested_processes, device):
+    device = torch.device(device)
+    if requested_processes < 0:
+        raise ValueError("num_processes must be greater than or equal to 0")
+
+    num_processes = requested_processes or (os.cpu_count() or 1)
+    if device.type == "cuda" and num_processes > 1:
+        logger.warning(
+            f"CUDA preprocessing uses one worker on {device}; "
+            f"reducing num_processes from {num_processes} to 1 to avoid duplicate models"
+        )
+        return 1
+    return num_processes
+
+
 def process_one(filename, hmodel, f0p, device, diff=False, mel_extractor=None):
     wav, sr = librosa.load(filename, sr=sampling_rate)
     audio_norm = torch.FloatTensor(wav)
@@ -41,7 +76,7 @@ def process_one(filename, hmodel, f0p, device, diff=False, mel_extractor=None):
 
     f0_path = filename + ".f0.npy"
     if not os.path.exists(f0_path):
-        f0_predictor = utils.get_f0_predictor(f0p,sampling_rate=sampling_rate, hop_length=hop_length,device=None,threshold=0.05)
+        f0_predictor = utils.get_f0_predictor(f0p,sampling_rate=sampling_rate, hop_length=hop_length,device=device,threshold=0.05)
         f0,uv = f0_predictor.compute_f0_uv(
             wav
         )
@@ -107,9 +142,9 @@ def process_batch(file_chunk, f0p, diff=False, mel_extractor=None, device="cpu")
     logger.info("Loading speech encoder for content...")
     rank = mp.current_process()._identity
     rank = rank[0] if len(rank) > 0 else 0
-    if torch.cuda.is_available():
-        gpu_id = rank % torch.cuda.device_count()
-        device = torch.device(f"cuda:{gpu_id}")
+    device = torch.device(device)
+    if device.type == "cuda":
+        torch.cuda.set_device(device)
     logger.info(f"Rank {rank} uses device {device}")
     hmodel = utils.get_speech_encoder(speech_encoder, device=device)
     logger.info(f"Loaded speech encoder for rank {rank}")
@@ -117,6 +152,14 @@ def process_batch(file_chunk, f0p, diff=False, mel_extractor=None, device="cpu")
         process_one(filename, hmodel, f0p, device, diff, mel_extractor)
 
 def parallel_process(filenames, num_processes, f0p, diff, mel_extractor, device):
+    device = torch.device(device)
+    num_processes = resolve_num_processes(num_processes, device)
+    logger.info(f"Using worker processes: {num_processes}")
+
+    if num_processes == 1:
+        process_batch(filenames, f0p, diff, mel_extractor, device=device)
+        return
+
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         tasks = []
         for i in range(num_processes):
@@ -140,13 +183,15 @@ if __name__ == "__main__":
         '--f0_predictor', type=str, default="rmvpe", help='Select F0 predictor, can select crepe,pm,dio,harvest,rmvpe,fcpe|default: pm(note: crepe is original F0 using mean filter)'
     )
     parser.add_argument(
-        '--num_processes', type=int, default=1, help='You are advised to set the number of processes to the same as the number of CPU cores'
+        '--num_processes', type=int, default=1, help='Number of worker processes (0=auto); CUDA uses one worker per selected device'
     )
     args = parser.parse_args()
     f0p = args.f0_predictor
-    device = args.device
-    if device is None:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    try:
+        device = resolve_device(args.device)
+        num_processes = resolve_num_processes(args.num_processes, device)
+    except (RuntimeError, ValueError) as error:
+        parser.error(str(error))
 
     print(speech_encoder)
     logger.info("Using device: " + str(device))
@@ -164,9 +209,5 @@ if __name__ == "__main__":
     filenames = glob(f"{args.in_dir}/*/*.wav", recursive=True)  # [:10]
     shuffle(filenames)
     mp.set_start_method("spawn", force=True)
-
-    num_processes = args.num_processes
-    if num_processes == 0:
-        num_processes = os.cpu_count()
 
     parallel_process(filenames, num_processes, f0p, args.use_diff, mel_extractor, device)
