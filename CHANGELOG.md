@@ -2,6 +2,13 @@
 
 All notable changes to this fork of [so-vits-svc](https://github.com/svc-develop-team/so-vits-svc).
 
+## 2026-08-11
+
+### Launcher & Distribution
+- **feat:** Restored integrator attribution in startup consoles without duplicating the GUI banner.
+- **feat:** Added maintainer, repository, and copyright details to Windows executable version resources.
+- **docs:** Added a standalone attribution file and identified the fork maintainer and repository in both READMEs.
+
 ## 2026-05-20
 
 ### Launcher & Distribution

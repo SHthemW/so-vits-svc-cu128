@@ -1,4 +1,7 @@
+import os
+
 _K = 73
+_EMITTED_ENVIRONMENT_VARIABLE = "SOVITS_STARTUP_BANNER_EMITTED"
 _PAYLOAD = (
     (106, 105, 26, 38, 100, 31, 0, 29, 26, 100, 26, 31, 10, 105, 125, 103, 120, 105, 62, 32, 61, 33, 105, 10, 28, 13, 8, 105, 120, 123, 103, 113),
     (100, 105, 0, 39, 61, 44, 46, 59, 40, 61, 44, 45, 105, 43, 48, 105, 26, 1, 30, 105, 102, 105, 26, 1, 61, 33, 44, 36, 30, 9, 14, 32, 61, 33, 60, 43),
@@ -17,3 +20,10 @@ def emit_startup_banner(title=None):
     if title:
         print(title)
     print()
+    os.environ[_EMITTED_ENVIRONMENT_VARIABLE] = "1"
+
+
+def emit_startup_banner_once(title=None):
+    if os.environ.get(_EMITTED_ENVIRONMENT_VARIABLE) == "1":
+        return
+    emit_startup_banner(title)

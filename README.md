@@ -8,6 +8,8 @@
 
 目标环境为 **CUDA 12.8** (支持RTX50系显卡, 原版不支持)，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
 
+本 CUDA 12.8 整合分支由 **SHW（GitHub：[SHthemW](https://github.com/SHthemW)）** 整合与维护，当前项目仓库为 [SHthemW/so-vits-svc-cu128](https://github.com/SHthemW/so-vits-svc-cu128)，完整归属说明见 [AUTHORS.md](AUTHORS.md)。
+
 完整更新历史见 [CHANGELOG_zh_CN.md](CHANGELOG_zh_CN.md)。
 
 整合包QQ交流群: 1104444127
@@ -28,13 +30,13 @@
 
 - 夸克网盘: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-下载好后运行so-vits-svc.exe即可打开webui.
+下载并解压后，运行 `so-vits-svc-start_gui/so-vits-svc-start_gui.exe` 即可打开 WebUI。
 
 ### 从源代码运行
 
 git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依赖.
 
-完成安装后运行对应平台的`_start_gui`启动脚本即可.
+完成安装后运行 `python start_gui.py` 即可，脚本会自动选择当前平台可用的 Python 环境。
 
 ## 环境要求
 
@@ -55,9 +57,18 @@ git clone 源代码到本地, 根据[环境要求](#环境要求)板块安装依
 
 ## 启动命令
 
-如果想快速使用, 可以安装 `sovits` 命令：Windows 运行 `_install_sovits_command.bat`，Linux 运行 `./_install_sovits_command.sh`，macOS 双击 `_install_sovits_command.command`。
+如果想快速使用，可以运行 `python install_sovits_command.py` 安装 `sovits` 命令。整合包用户也可以运行 `so-vits-svc-install_sovits_command` 目录内的同名可执行程序。
 
 后续可以打开新终端并运行 `sovits start webui`来一键从任何目录启动程序.
+
+## 构建发布包
+
+Windows 下运行 `_build.bat` 会使用隔离的 PyInstaller 环境构建两个目录式可执行程序，并将程序源码、内置运行环境、预训练模型和可执行程序打包到 `dist/so-vits-svc-cu128-yyyyMMdd-HHmmss.zip`。
+
+构建采用 `--onedir` 且禁用 UPX，以减少单文件自解压和二进制压缩导致的杀毒软件误报。若本机证书存储中有代码签名证书，可先设置 `SOVITS_SIGN_CERT_SHA1` 为证书指纹，构建脚本将使用 `signtool.exe` 对两个主程序签名。
+
+- `_build.bat --dry-run`：仅验证发布文件清单，不构建可执行程序。
+- `_build.bat --build-only`：仅构建并自检两个可执行程序，不生成大型压缩包。
 
 ## 与原版的主要区别
 
