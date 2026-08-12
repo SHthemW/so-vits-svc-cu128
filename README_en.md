@@ -8,6 +8,8 @@ This project is a fork of [so-vits-svc](https://github.com/svc-develop-team/so-v
 
 The target environment is **CUDA 12.8**, with support for RTX 50-series GPUs that the upstream project does not provide, along with compatibility fixes for newer PyTorch versions on Windows.
 
+This CUDA 12.8 integration is maintained by **SHW ([SHthemW on GitHub](https://github.com/SHthemW))**. The current project repository is [SHthemW/so-vits-svc-cu128](https://github.com/SHthemW/so-vits-svc-cu128); see [AUTHORS.md](AUTHORS.md) for the full attribution.
+
 See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
 
 Prebuilt package QQ group: 1104444127
@@ -28,13 +30,13 @@ This section only covers project deployment. For detailed usage instructions, se
 
 - Quark Cloud Drive: https://pan.quark.cn/s/b6ec45c084e8?pwd=Ahhv
 
-After downloading, run `so-vits-svc.exe` to open the WebUI.
+After downloading and extracting the package, run `so-vits-svc-start_gui.exe` from the project root to open the WebUI.
 
 ### Run from Source
 
 Clone the source code locally and install the dependencies described in [System Requirements](#system-requirements).
 
-After installation, run the `_start_gui` launcher for your platform.
+After installation, run `python start_gui.py`. The script automatically selects a usable Python environment for the current platform.
 
 ## System Requirements
 
@@ -55,9 +57,18 @@ After installation, run the `_start_gui` launcher for your platform.
 
 ## Startup Commands
 
-For quick access, install the `sovits` command by running `_install_sovits_command.bat` on Windows, `./_install_sovits_command.sh` on Linux, or `./_install_sovits_command.command` on macOS.
+For quick access, run `python install_sovits_command.py` to install the `sovits` command. Prebuilt-package users can instead run `so-vits-svc-install_sovits_command.exe` from the project root.
 
 Then open a new terminal and run `sovits start webui` to launch the application from any directory.
+
+## Building a Release Package
+
+On Windows, `_build.bat` creates two single-file executables in an isolated PyInstaller environment, publishes them to the project root, then packages them with the source, bundled runtime, and pretrained models as `dist/so-vits-svc-cu128-yyyyMMdd-HHmmss.zip`.
+
+The build uses `--onefile` with UPX disabled and does not generate or package launcher directories or an `_internal` directory. A single-file executable extracts itself to the system temporary directory at startup, so its first launch can be slower and more prone to antivirus false positives. If a code-signing certificate is available in the local certificate store, set `SOVITS_SIGN_CERT_SHA1` to its thumbprint and the build will sign both main executables with `signtool.exe`.
+
+- `_build.bat --dry-run`: validate the release manifest without building executables.
+- `_build.bat --build-only`: build and self-test both executables without creating the large archive.
 
 ## Differences from Upstream
 

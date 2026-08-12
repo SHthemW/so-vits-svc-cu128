@@ -173,6 +173,4 @@ webui_config.json
 get-pip.py
 .pip-wheels/
 build_exe/
-so-vits-svc.exe
-so-vits-svc-cmd.exe
-so-vits-svc-tensorboard.exe
+/so-vits-svc-*

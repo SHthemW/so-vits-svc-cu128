@@ -77,6 +77,7 @@ import torch
 from compress_model import removeOptimizer
 from edgetts.tts_voices import SUPPORTED_LANGUAGES
 from inference.infer_tool import Svc
+from startup_banner import emit_startup_banner_once
 from utils import mix_model
 from webui_manage import (
     CONFIG_PATH,
@@ -89,8 +90,11 @@ from webui_manage import (
     build_management_tab,
     scan_exported_models,
 )
-from webui_train import build_training_tab, _get_webui_config_key, _save_webui_config_key
-from startup_banner import emit_startup_banner
+from webui_train import (
+    _get_webui_config_key,
+    _save_webui_config_key,
+    build_training_tab,
+)
 
 logging.getLogger('numba').setLevel(logging.WARNING)
 logging.getLogger('markdown_it').setLevel(logging.WARNING)
@@ -862,7 +866,7 @@ with gr.Blocks(
         model_unload_button.click(modelUnload,[],[sid,sid_output], queue=False, show_api=False)
     app.queue(default_concurrency_limit=8)
     webbrowser.open("http://127.0.0.1:7860")
-    emit_startup_banner("# WebUI")
+    emit_startup_banner_once("# WebUI")
     root_path = _root_path()
     if root_path:
         print(f"Using Gradio root_path: {root_path}")

@@ -187,8 +187,7 @@ def describe_dataset() -> str:
 
 
 def refresh_dataset_state():
-    dataset_root = ROOT / "dataset_raw"
-    return str(dataset_root), describe_dataset()
+    return describe_dataset()
 
 
 def _dataset_upload_error(message: str):
@@ -813,14 +812,17 @@ def get_flist_status():
 
 
 def start_hubert(f0_predictor, num_processes, use_diff, device):
+    num_processes = max(int(num_processes), 1)
+    if torch.device(device).type == "cuda":
+        num_processes = 1
     _save_webui_config_key("hubert_f0", f0_predictor)
-    _save_webui_config_key("hubert_num_processes", int(num_processes))
+    _save_webui_config_key("hubert_num_processes", num_processes)
     _save_webui_config_key("hubert_use_diff", bool(use_diff))
     _save_webui_config_key("hubert_device", device)
     args = ["preprocess_hubert_f0.py",
             "--in_dir", "dataset/44k",
             "--f0_predictor", f0_predictor,
-            "--num_processes", str(int(num_processes)),
+            "--num_processes", str(num_processes),
             "--device", device]
     if use_diff:
         args.append("--use_diff")
@@ -1045,13 +1047,13 @@ def build_training_tab():
     refresh_dataset_status_btn.click(
         refresh_dataset_state,
         [],
-        [dataset_dir, dataset_status],
+        [dataset_status],
         queue=False,
     )
     dataset_upload_tab.select(
         refresh_dataset_state,
         [],
-        [dataset_dir, dataset_status],
+        [dataset_status],
         queue=False,
         show_api=False,
     )
@@ -1279,7 +1281,7 @@ def build_training_tab():
     dataset_status_timer.tick(
         refresh_dataset_state,
         [],
-        [dataset_dir, dataset_status],
+        [dataset_status],
         queue=False,
         show_api=False,
     )

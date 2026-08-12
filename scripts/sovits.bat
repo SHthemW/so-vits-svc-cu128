@@ -54,7 +54,11 @@ if not exist "%ROOT_DIR%\python_env\Scripts\activate.bat" (
     echo sovits: cannot find Python environment activation script: %ROOT_DIR%\python_env\Scripts\activate.bat 1>&2
     exit /b 1
 )
+call :prepare_python_env
+call :select_python
+if errorlevel 1 exit /b 1
 pushd "%ROOT_DIR%"
+call :run_python -c "from startup_banner import emit_startup_banner; emit_startup_banner('# Command Line')"
 call "%ROOT_DIR%\python_env\Scripts\activate.bat"
 echo So-VITS-SVC environment activated.
 echo Project directory: %ROOT_DIR%
@@ -84,6 +88,7 @@ call :prepare_python_env
 call :select_python
 if errorlevel 1 exit /b 1
 pushd "%ROOT_DIR%"
+call :run_python -c "from startup_banner import emit_startup_banner; emit_startup_banner('# TensorBoard')"
 echo Starting TensorBoard for %ROOT_DIR%\logs\44k ...
 call :run_python -m tensorboard.main --logdir "%ROOT_DIR%\logs\44k" --host 127.0.0.1 --port 6006
 set "EXIT_CODE=%ERRORLEVEL%"
