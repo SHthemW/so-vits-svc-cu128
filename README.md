@@ -8,7 +8,7 @@
 
 目标环境为 **CUDA 12.8** (支持RTX50系显卡, 原版不支持)，并修复了较新 PyTorch 版本在 Windows 上的各类兼容性问题。
 
-本 CUDA 12.8 整合分支由 **SHW（GitHub：[SHthemW](https://github.com/SHthemW)）** 整合与维护，当前项目仓库为 [SHthemW/so-vits-svc-cu128](https://github.com/SHthemW/so-vits-svc-cu128)，完整归属说明见 [AUTHORS.md](AUTHORS.md)。
+本 CUDA 12.8 整合分支由 **SHW（GitHub：[SHW2002](https://github.com/SHW2002)）** 整合与维护，当前项目仓库为 [SHthemW/so-vits-svc-cu128](https://github.com/SHthemW/so-vits-svc-cu128)，完整归属说明见 [AUTHORS.md](AUTHORS.md)。
 
 完整更新历史见 [CHANGELOG_zh_CN.md](CHANGELOG_zh_CN.md)。
 
