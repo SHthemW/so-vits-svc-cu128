@@ -32,7 +32,7 @@ body:
           required: true
 
   - type: input
-    id: version
+    id: app-version
     attributes:
       label: 版本
       description: 整合包用户请填写压缩包名或 WebUI 启动横幅上显示的版本；源码用户请填写 `git rev-parse --short HEAD` 的输出。
@@ -74,7 +74,7 @@ body:
       required: true
 
   - type: textarea
-    id: description
+    id: what-happened
     attributes:
       label: 问题描述
       description: 简明说明发生了什么，以及它为什么是错误的行为。
@@ -146,7 +146,7 @@ body:
       required: false
 
   - type: textarea
-    id: environment
+    id: env-info
     attributes:
       label: 运行环境（必填）
       description: 请补全下列每一项，未知的写「未知」。GPU 与驱动信息可用 `nvidia-smi` 获取。
@@ -171,7 +171,7 @@ body:
         上传前请自行移除路径中的个人信息。
     validations:
       required: false
-      accept: ".log,.txt,.json,.csv,.py,.zip,.gz,.tar.gz,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm"
+      accept: ".log,.txt,.json,.csv,.py,.zip,.gz,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm"
 
   - type: textarea
     id: additional
