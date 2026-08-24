@@ -1,0 +1,95 @@
+name: ✨ 新功能建议 / Feature Request
+description: 提出新功能、改进或体验优化建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的建议！提交前请注意：
+
+        - 本模板用于**提出新功能或改进**。程序报错请改用「🐛 Bug 反馈」模板。
+        - 使用方法上的疑问请先查阅
+          [用户使用手册](https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc#)
+          或加入 QQ 交流群 `1104444127`。
+        - 涉及模型结构、训练算法本身的改进，通常更适合提给
+          [上游 so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)。
+          本仓库主要维护 CUDA 12.8 兼容性、WebUI 与整合发布流程。
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过 [现有 issue](https://github.com/SHthemW/so-vits-svc-cu128/issues?q=is%3Aissue)，确认该建议尚未被提出。
+          required: true
+        - label: 我已确认当前版本尚未提供该功能（已查阅 [README](https://github.com/SHthemW/so-vits-svc-cu128/blob/master/README.md) 与 [CHANGELOG](https://github.com/SHthemW/so-vits-svc-cu128/blob/master/CHANGELOG_zh_CN.md)）。
+          required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 相关模块
+      options:
+        - WebUI - 推理页
+        - WebUI - 训练页
+        - WebUI - 模型管理 / 文件上传下载
+        - WebUI - 整体交互与界面布局
+        - 启动器 / sovits 命令
+        - 环境安装与依赖管理
+        - 打包与发布流程
+        - 文档与使用手册
+        - 其他 / 跨模块
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 需求背景 / 当前的不便之处
+      description: 请说明你在实际使用中遇到了什么障碍，而不是直接描述实现方式。
+      placeholder: 每次训练前都要手动填一遍相同的参数，切换数据集时很容易填错……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的功能
+      description: 希望程序具体做什么？如涉及界面，请描述它出现在哪个页面、如何操作。
+      placeholder: 在训练页增加「保存/读取参数预设」按钮，可为不同数据集分别保存一套参数……
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案 / 目前的变通做法
+      description: 你现在是怎么绕过这个问题的？是否考虑过其他实现方式，以及为什么它们不够好？
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考资料
+      description: 相关的上游 PR、其他项目的同类实现、论文或文档链接。
+    validations:
+      required: false
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: 附件
+      description: 界面草图、参考截图、示例配置文件等（可选）。
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm,.txt,.log,.json,.zip"
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 参与意愿
+      options:
+        - label: 我愿意提交 Pull Request 来实现这个功能。
+          required: false

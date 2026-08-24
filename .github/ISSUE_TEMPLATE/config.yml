@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 用户使用手册（简体中文）
+    url: https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc#
+    about: 部署方式、参数含义、训练流程等使用问题请先查阅手册，大部分疑问这里已有答案。
+  - name: 💬 整合包 QQ 交流群：1104444127
+    url: https://github.com/SHthemW/so-vits-svc-cu128/blob/master/README.md
+    about: 使用求助与经验交流请加 QQ 群 1104444127，issue 区只用于反馈缺陷与提交建议。
+  - name: ⬆️ 上游 so-vits-svc 仓库
+    url: https://github.com/svc-develop-team/so-vits-svc
+    about: 模型结构、训练算法等与本 fork 无关的通用问题，请到上游项目反馈。

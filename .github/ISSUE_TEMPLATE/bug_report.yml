@@ -1,0 +1,190 @@
+name: 🐛 Bug 反馈 / Bug Report
+description: 报告程序崩溃、报错或功能异常（必须提供完整日志）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你反馈问题！在提交前请注意：
+
+        - **本模板用于反馈程序缺陷。** 如果你只是不知道某个功能怎么用，请先查阅
+          [用户使用手册](https://www.yuque.com/shenhanwen-ozfty/oogl43/dim2na4llgo3quz9?singleDoc#)
+          或加入 QQ 交流群 `1104444127` 询问，不要在此提交 issue。
+        - **必须提供完整日志。** 只提供截图、只贴最后一行报错、或日志被截断的 issue 会被直接关闭，
+          因为缺少上下文的日志无法定位问题。请粘贴**从启动到报错为止的全部输出**，或直接上传日志文件。
+        - 如果问题同样存在于[上游 so-vits-svc](https://github.com/svc-develop-team/so-vits-svc)，
+          请到上游仓库反馈；本仓库只处理 CUDA 12.8 整合分支与 WebUI 相关的问题。
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: 提交前确认
+      description: 以下每一项都必须勾选。
+      options:
+        - label: 我已搜索过 [现有 issue](https://github.com/SHthemW/so-vits-svc-cu128/issues?q=is%3Aissue)，确认这不是重复问题。
+          required: true
+        - label: 我已阅读 [README](https://github.com/SHthemW/so-vits-svc-cu128/blob/master/README.md) 的「环境要求」，确认 Python 版本为 3.9~3.10、pip 版本为 24.0（源码部署时）。
+          required: true
+        - label: 我已准备好**完整的、未经截断**的日志，并会在下方粘贴或上传。
+          required: true
+        - label: 我确认这是本 fork（CUDA 12.8 / WebUI）的问题，而不是上游项目的通用问题。
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 整合包用户请填写压缩包名或 WebUI 启动横幅上显示的版本；源码用户请填写 `git rev-parse --short HEAD` 的输出。
+      placeholder: 例如 so-vits-svc-cu128-20260811-093000 / 提交 dce1ffc
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: 运行方式
+      description: 你是如何运行本程序的？
+      options:
+        - 整合包（下载的压缩包，运行 so-vits-svc-start_gui.exe）
+        - 云端镜像（优云智算等预配置镜像）
+        - 源代码 + 自行安装的 Python 环境
+        - 源代码 + 项目内置 python_env
+        - 其他（请在描述中说明）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 出问题的模块
+      options:
+        - 启动器 / sovits 命令（程序无法启动）
+        - 环境安装与依赖（pip、cmake、PyTorch、CUDA）
+        - WebUI - 推理页
+        - WebUI - 训练页：数据集预处理
+        - WebUI - 训练页：SoVITS 主模型训练
+        - WebUI - 训练页：扩散模型训练
+        - WebUI - 训练页：聚类 / 检索模型训练
+        - WebUI - 模型管理 / 文件上传下载
+        - 命令行脚本（inference_main.py、train.py 等）
+        - 打包与发布（_build.bat）
+        - 其他 / 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 简明说明发生了什么，以及它为什么是错误的行为。
+      placeholder: 点击「开始训练」后进程立即退出，界面没有任何提示。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请给出别人照做就能重现问题的最小步骤，并说明是否每次都能复现。
+      value: |
+        1.
+        2.
+        3.
+
+        复现概率：每次 / 偶发（约 __ %）
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为正确的结果应该是什么？
+    validations:
+      required: false
+
+  - type: textarea
+    id: startup-log
+    attributes:
+      label: 完整启动日志（必填）
+      description: |
+        粘贴**完整**的控制台输出或项目根目录下的 `webui_start.log`（若存在），
+        必须包含启动横幅在内的全部内容，**不要只贴报错的那几行**。
+        超过 200 行或含隐私信息时，请改为在下方「日志文件与截图」中上传文件，并在此处填写「见附件」。
+      render: text
+      placeholder: |
+        # So-VITS-SVC 4.1 with CUDA 12.8
+        - Integrated by SHW / SHthemW@Github
+        ...（从第一行到最后一行的全部输出）
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-log
+    attributes:
+      label: 完整报错信息 / Traceback（必填）
+      description: |
+        粘贴完整的 Python Traceback，或项目根目录下 `webui_start.err.log` 的全部内容。
+        请保留 `Traceback (most recent call last):` 开始的每一行；确实没有报错时请填写「无报错」。
+      render: text
+      placeholder: |
+        Traceback (most recent call last):
+          File "webui_train.py", line ..., in ...
+        ...
+        RuntimeError: CUDA out of memory. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: train-log
+    attributes:
+      label: 训练日志（训练相关问题必填）
+      description: 若问题发生在训练过程中，请粘贴 `logs/44k/train.log` 的相关片段（至少包含报错前后各 50 行）。
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境（必填）
+      description: 请补全下列每一项，未知的写「未知」。GPU 与驱动信息可用 `nvidia-smi` 获取。
+      value: |
+        - 操作系统：
+        - 显卡型号：
+        - 显卡驱动版本：
+        - CUDA 版本（nvidia-smi 显示）：
+        - Python 版本：
+        - PyTorch 版本（python -c "import torch;print(torch.__version__)"）：
+        - 内存 / 显存：
+    validations:
+      required: true
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: 日志文件与截图
+      description: |
+        **强烈建议**直接拖入 `webui_start.log`、`webui_start.err.log`、`logs/44k/train.log` 等日志文件
+        （日志过长时这是唯一可接受的提交方式）。也可附上界面截图、配置文件或打包好的 zip。
+        上传前请自行移除路径中的个人信息。
+    validations:
+      required: false
+      accept: ".log,.txt,.json,.csv,.py,.zip,.gz,.tar.gz,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm"
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他补充信息
+      description: 例如：该问题从哪个版本开始出现、你尝试过的排查方式、可能的原因或修复思路。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: log-confirmation
+    attributes:
+      label: 日志完整性确认
+      options:
+        - label: 我确认上方提供的日志是**完整**的（未删减、未截断、非仅截图），若日志缺失导致无法定位问题，我理解该 issue 会被关闭。
+          required: true
