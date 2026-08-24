@@ -22,9 +22,9 @@ body:
       label: 提交前确认
       description: 以下每一项都必须勾选。
       options:
-        - label: 我已搜索过 [现有 issue](https://github.com/SHthemW/so-vits-svc-cu128/issues?q=is%3Aissue)，确认这不是重复问题。
+        - label: 我已搜索过 [现有 issue](https://github.com/SHW2002/so-vits-svc-cu128/issues?q=is%3Aissue)，确认这不是重复问题。
           required: true
-        - label: 我已阅读 [README](https://github.com/SHthemW/so-vits-svc-cu128/blob/master/README.md) 的「环境要求」，确认 Python 版本为 3.9~3.10、pip 版本为 24.0（源码部署时）。
+        - label: 我已阅读 [README](https://github.com/SHW2002/so-vits-svc-cu128/blob/master/README.md) 的「环境要求」，确认 Python 版本为 3.9~3.10、pip 版本为 24.0（源码部署时）。
           required: true
         - label: 我已准备好**完整的、未经截断**的日志，并会在下方粘贴或上传。
           required: true

@@ -21,9 +21,9 @@ body:
     attributes:
       label: 提交前确认
       options:
-        - label: 我已搜索过 [现有 issue](https://github.com/SHthemW/so-vits-svc-cu128/issues?q=is%3Aissue)，确认该建议尚未被提出。
+        - label: 我已搜索过 [现有 issue](https://github.com/SHW2002/so-vits-svc-cu128/issues?q=is%3Aissue)，确认该建议尚未被提出。
           required: true
-        - label: 我已确认当前版本尚未提供该功能（已查阅 [README](https://github.com/SHthemW/so-vits-svc-cu128/blob/master/README.md) 与 [CHANGELOG](https://github.com/SHthemW/so-vits-svc-cu128/blob/master/CHANGELOG_zh_CN.md)）。
+        - label: 我已确认当前版本尚未提供该功能（已查阅 [README](https://github.com/SHW2002/so-vits-svc-cu128/blob/master/README.md) 与 [CHANGELOG](https://github.com/SHW2002/so-vits-svc-cu128/blob/master/CHANGELOG_zh_CN.md)）。
           required: true
 
   - type: dropdown
