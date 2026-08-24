@@ -2,7 +2,7 @@ ffmpeg-python
 av==17.1.0
 Flask
 Flask_Cors
-gradio==4.44.1
+gradio==6.7.0
 numpy==1.23.5
 matplotlib<3.10
 pyworld
